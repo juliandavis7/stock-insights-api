@@ -1,0 +1,37 @@
+{
+  "generated_at": "2025-09-05T14:21:41.206753",
+  "total_stocks": 21,
+  "total_requests": 105,
+  "successful_requests": 105,
+  "failed_requests": 0,
+  "stocks": [
+    "AAPL",
+    "META",
+    "GOOG",
+    "AMZN",
+    "CELH",
+    "ELF",
+    "FUBO",
+    "NVDA",
+    "SOFI",
+    "ADBE",
+    "PLTR",
+    "TSLA",
+    "PYPL",
+    "AMD",
+    "NKE",
+    "SHOP",
+    "CAKE",
+    "WYNN",
+    "GOOGL",
+    "MSFT",
+    "CRM"
+  ],
+  "endpoints": [
+    "analyst-estimates-annual",
+    "analyst-estimates-quarterly",
+    "income-statement",
+    "cash-flow-statement",
+    "profile"
+  ]
+}
