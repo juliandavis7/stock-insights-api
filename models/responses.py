@@ -6,21 +6,21 @@ from typing import Dict, Optional, Any, List
 
 class MetricsResponse(BaseModel):
     """Model for stock metrics response"""
-    ttm_pe: float | None
-    forward_pe: float | None
-    two_year_forward_pe: float | None
-    ttm_eps_growth: float | None
-    current_year_eps_growth: float | None
-    next_year_eps_growth: float | None
-    ttm_revenue_growth: float | None
-    current_year_revenue_growth: float | None
-    next_year_revenue_growth: float | None
-    gross_margin: float | None
-    net_margin: float | None
-    ttm_ps_ratio: float | None
-    forward_ps_ratio: float | None
+    ttm_pe: Optional[float]
+    forward_pe: Optional[float]
+    two_year_forward_pe: Optional[float]
+    ttm_eps_growth: Optional[float]
+    current_year_eps_growth: Optional[float]
+    next_year_eps_growth: Optional[float]
+    ttm_revenue_growth: Optional[float]
+    current_year_revenue_growth: Optional[float]
+    next_year_revenue_growth: Optional[float]
+    gross_margin: Optional[float]
+    net_margin: Optional[float]
+    ttm_ps_ratio: Optional[float]
+    forward_ps_ratio: Optional[float]
     # Stock info fields removed - use /info endpoint instead
-    ticker: str | None
+    ticker: Optional[str]
 
 
 class ProjectionResponse(BaseModel):
@@ -91,24 +91,24 @@ class FinancialStatementResponse(BaseModel):
 class AnalystEstimateResponse(BaseModel):
     """Model for analyst estimates data"""
     fiscalYear: str
-    totalRevenue: int | None
-    netIncome: int | None
-    eps: float | None
-    dilutedEps: float | None
+    totalRevenue: Optional[int]
+    netIncome: Optional[int]
+    eps: Optional[float]
+    dilutedEps: Optional[float]
 
 class FinancialDataResponse(BaseModel):
     """Model for processed financial data response"""
     fiscalYear: str
-    totalRevenue: int | None
-    costOfRevenue: int | None
-    grossProfit: int | None
-    sellingGeneralAndAdministrative: int | None
-    researchAndDevelopment: int | None
-    operatingExpenses: int | None
-    operatingIncome: int | None
-    netIncome: int | None
-    eps: float | None
-    dilutedEps: float | None
+    totalRevenue: Optional[int]
+    costOfRevenue: Optional[int]
+    grossProfit: Optional[int]
+    sellingGeneralAndAdministrative: Optional[int]
+    researchAndDevelopment: Optional[int]
+    operatingExpenses: Optional[int]
+    operatingIncome: Optional[int]
+    netIncome: Optional[int]
+    eps: Optional[float]
+    dilutedEps: Optional[float]
 
 class ComprehensiveFinancialResponse(BaseModel):
     """Model for comprehensive financial data including historical and analyst estimates"""
