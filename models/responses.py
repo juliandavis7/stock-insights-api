@@ -41,7 +41,7 @@ class ProjectionBaseDataResponse(BaseModel):
     revenue: Optional[int] = None
     net_income: Optional[int] = None
     eps: Optional[float] = None
-    net_income_margin: Optional[float] = None
+    net_income_margin: Optional[int] = None
     data_year: int
 
 
