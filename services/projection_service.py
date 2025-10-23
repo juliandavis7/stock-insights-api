@@ -42,7 +42,6 @@ class ProjectionService:
         Returns:
             Dictionary containing projections for each year with calculated metrics
         """
-        logger.info(f"Starting projection calculations for {ticker}")
         
         try:
             # Validate inputs
@@ -104,7 +103,6 @@ class ProjectionService:
                 'summary': summary
             }
             
-            logger.info(f"Successfully calculated projections for {ticker}")
             return result
             
         except Exception as e:
@@ -341,7 +339,6 @@ class ProjectionService:
                     else:
                         current_year_eps = None
                     
-                    logger.info(f"Hybrid calculations for {ticker}: revenue={revenue}, eps={current_year_eps}, net_income={net_income}")
                     
                 else:
                     logger.warning(f"Insufficient data for hybrid calculations for {ticker}")
@@ -352,9 +349,9 @@ class ProjectionService:
             # Build result dictionary
             result = {
                 'ticker': ticker,
-                'revenue': float(revenue) if revenue else None,
-                'net_income': float(net_income) if net_income else None,
-                'current_year_eps': float(current_year_eps) if current_year_eps else None,
+                'revenue': int(revenue) if revenue else None,
+                'net_income': int(net_income) if net_income else None,
+                'current_year_eps': round(float(current_year_eps), 2) if current_year_eps else None,
                 'price': float(price),
                 'market_cap': float(market_cap),
                 'shares_outstanding': float(shares_outstanding),

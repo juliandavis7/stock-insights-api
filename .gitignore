@@ -75,3 +75,6 @@ tmp/
 *.db
 *.sqlite
 *.sqlite3
+
+# Scripts
+scripts/
