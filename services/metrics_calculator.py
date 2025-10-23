@@ -493,14 +493,14 @@ class MetricsCalculator:
 
     def _get_quarterly_actual_net_income(self, quarterly_data: List[Dict], target_year: int, num_quarters: int = 4) -> float:
         """Get actual net income for quarters in target year (matches script logic)."""
-        year_data = self._filter_data_by_year(quarterly_data, target_year)
+        year_data = self._filter_data_by_fiscal_year(quarterly_data, target_year)
         quarters = year_data[:num_quarters]
         total_net_income = sum(q.get('netIncome', 0) for q in quarters)
         return total_net_income
 
     def _get_quarterly_estimates_net_income(self, estimates_data: List[Dict], target_year: int, num_quarters: int = 4) -> float:
         """Get estimated net income for quarters in target year (matches script logic)."""
-        year_data = self._filter_data_by_year(estimates_data, target_year)
+        year_data = self._filter_data_by_fiscal_year(estimates_data, target_year)
         quarters = year_data[:num_quarters]
         total_net_income = sum(q.get('estimatedNetIncomeAvg', 0) for q in quarters)
         return total_net_income

@@ -178,7 +178,7 @@ def get_projection_base_data(ticker: str = Query(..., description="Stock ticker 
         # Calculate net income margin if we have both net income and revenue
         net_income_margin = None
         if data.get('net_income') and data.get('revenue') and data['revenue'] > 0:
-            net_income_margin = (data['net_income'] / data['revenue']) * 100
+            net_income_margin = round((data['net_income'] / data['revenue']) * 100, 2)
         
         return ProjectionBaseDataResponse(
             ticker=data['ticker'],
@@ -470,8 +470,8 @@ def get_info(ticker: str = Query(..., description="Stock ticker symbol"), user: 
         return {
             "ticker": ticker.upper(),
             "price": current_price,
-            "market_cap": market_cap,
-            "shares_outstanding": shares_outstanding
+            "market_cap": int(market_cap) if market_cap else None,
+            "shares_outstanding": int(shares_outstanding) if shares_outstanding else None
         }
         
     except HTTPException:
