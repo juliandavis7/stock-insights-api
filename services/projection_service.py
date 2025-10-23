@@ -42,7 +42,6 @@ class ProjectionService:
         Returns:
             Dictionary containing projections for each year with calculated metrics
         """
-        logger.info(f"Starting projection calculations for {ticker}")
         
         try:
             # Validate inputs
@@ -104,7 +103,6 @@ class ProjectionService:
                 'summary': summary
             }
             
-            logger.info(f"Successfully calculated projections for {ticker}")
             return result
             
         except Exception as e:
@@ -341,7 +339,6 @@ class ProjectionService:
                     else:
                         current_year_eps = None
                     
-                    logger.info(f"Hybrid calculations for {ticker}: revenue={revenue}, eps={current_year_eps}, net_income={net_income}")
                     
                 else:
                     logger.warning(f"Insufficient data for hybrid calculations for {ticker}")

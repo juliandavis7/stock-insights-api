@@ -31,9 +31,9 @@ class FMPService:
         self.use_mock_data = os.getenv("FMP_SERVER", "True").lower() == "false"
         
         if self.use_mock_data:
-            logger.info("🔧 FMP Service configured to use mock data (FMP_SERVER=False)")
+            pass  # Using mock data
         else:
-            logger.info("🌐 FMP Service configured to use live API (FMP_SERVER=True)")
+            pass  # Using live API
     
     def _is_stock_cached(self, ticker: str) -> bool:
         """Check if a stock has cached data available"""
@@ -60,22 +60,17 @@ class FMPService:
             # Construct absolute file path - try multiple approaches
             # First, try relative to current working directory
             file_path = os.path.join("mocks", endpoint_path, f"{ticker.upper()}.json")
-            logger.info(f"🔍 Trying path 1: {file_path}")
             
             if not os.path.exists(file_path):
                 # Try relative to the services directory
                 current_dir = os.path.dirname(os.path.abspath(__file__))
                 api_dir = os.path.dirname(current_dir)  # Go up one level from services/ to api/
                 file_path = os.path.join(api_dir, "mocks", endpoint_path, f"{ticker.upper()}.json")
-                logger.info(f"🔍 Trying path 2: {file_path}")
                 
                 if not os.path.exists(file_path):
                     # Try relative to the project root (assuming we're in api/ subdirectory)
                     project_root = os.path.join(os.getcwd(), "api")
                     file_path = os.path.join(project_root, "mocks", endpoint_path, f"{ticker.upper()}.json")
-                    logger.info(f"🔍 Trying path 3: {file_path}")
-            
-            logger.info(f"🔍 Final path: {file_path}")
             
             if not os.path.exists(file_path):
                 logger.warning(f"Mock data file not found: {file_path}")
@@ -84,15 +79,12 @@ class FMPService:
             with open(file_path, 'r') as f:
                 mock_data = json.load(f)
             
-            logger.info(f"📄 Raw mock data keys: {list(mock_data.keys()) if isinstance(mock_data, dict) else 'Not a dict'}")
-            
             # Check if there was an error when the data was originally fetched
             if mock_data.get("error"):
                 logger.error(f"Mock data contains error for {ticker} {endpoint_path}: {mock_data['error']}")
                 return None
             
             data = mock_data.get("data")
-            logger.info(f"📁 Loaded mock data for {ticker} {endpoint_path}: {type(data)}, length: {len(data) if data else 'None'}")
             return data
             
         except Exception as e:
@@ -176,7 +168,6 @@ class FMPService:
                             revenue.append(ttm_revenue)
                             eps.append(ttm_eps)
             
-            logger.info(f"Successfully processed estimates data for {ticker}: {len(quarters)} data points")
             return {
                 'ticker': ticker,
                 'quarters': quarters,
@@ -214,14 +205,10 @@ class FMPService:
         """
         # Use mock data if configured
         if self.use_mock_data:
-            logger.info(f"🔧 Using mock data for {ticker} analyst estimates")
             self._handle_missing_stock(ticker, "analyst-estimates")
             mock_data = self._load_mock_data("analyst-estimates", ticker)
-            logger.info(f"📁 Mock data loaded for {ticker}: {type(mock_data)}, length: {len(mock_data) if mock_data else 'None'}")
             if mock_data is not None:
-                logger.info(f"✅ Returning mock data for {ticker} analyst estimates")
                 return mock_data
-            logger.warning(f"❌ No mock data available for {ticker} analyst estimates")
             return []
         
         # Use live API
@@ -238,14 +225,9 @@ class FMPService:
             data = response.json()
             
             if isinstance(data, list):
-                logger.info(f"Successfully fetched {len(data)} analyst estimates for {ticker}")
-                if len(data) > 0:
-                    logger.info(f"📊 Sample FMP estimate: {data[0]}")
-                    logger.info(f"📊 All dates in FMP data: {[item.get('date') for item in data[:5]]}")
                 return data
             else:
                 logger.warning(f"Unexpected response format for {ticker}: {type(data)}")
-                logger.info(f"📊 Actual response data: {data}")
                 return []
                 
         except requests.exceptions.RequestException as e:
@@ -280,7 +262,6 @@ class FMPService:
                     'shares_outstanding': float(latest_income.get('weightedAverageShsOut', 0))
                 }
                 
-                logger.info(f"Successfully loaded current year data for {ticker} from mock")
                 return current_data
             return None
         
@@ -306,7 +287,6 @@ class FMPService:
                 'shares_outstanding': float(latest_income.get('weightedAverageShsOut', 0))
             }
             
-            logger.info(f"Successfully fetched current year data for {ticker}")
             return current_data
             
         except requests.exceptions.RequestException as e:
@@ -341,7 +321,6 @@ class FMPService:
                     if quarter_eps is not None:
                         ttm_eps += float(quarter_eps)
                 
-                logger.info(f"Successfully calculated TTM EPS for {ticker} from mock: {ttm_eps}")
                 return ttm_eps
             return None
         
@@ -364,7 +343,6 @@ class FMPService:
                 if quarter_eps is not None:
                     ttm_eps += float(quarter_eps)
             
-            logger.info(f"Successfully calculated TTM EPS for {ticker}: {ttm_eps}")
             return ttm_eps
             
         except requests.exceptions.RequestException as e:
@@ -392,7 +370,6 @@ class FMPService:
             self._handle_missing_stock(ticker, "profile")
             mock_data = self._load_mock_data("profile", ticker)
             if mock_data is not None and isinstance(mock_data, list) and len(mock_data) > 0:
-                logger.info(f"Successfully loaded company profile for {ticker} from mock")
                 return mock_data[0]
             return None
         
@@ -404,7 +381,6 @@ class FMPService:
             data = response.json()
             
             if data and isinstance(data, list) and len(data) > 0:
-                logger.info(f"Successfully fetched company profile for {ticker}")
                 return data[0]
             else:
                 logger.warning(f"No company profile data found for {ticker}")
@@ -596,7 +572,6 @@ class FMPService:
                             operating_cash_flow.append(ttm_operating_cash_flow)
                             free_cash_flow.append(ttm_free_cash_flow if ttm_free_cash_flow is not None else 0)
             
-            logger.info(f"Successfully fetched cash flow data for {ticker}: {len(quarters)} data points")
             return {
                 'ticker': ticker,
                 'quarters': quarters,
@@ -625,11 +600,9 @@ class FMPService:
         """
         # Use mock data if configured
         if self.use_mock_data:
-            logger.info(f"🔧 Using mock data for {ticker} income statement ({mode} mode)")
             self._handle_missing_stock(ticker, "income-statement")
             mock_data = self._load_mock_data("income-statement", ticker)
             if mock_data is not None:
-                logger.info(f"✅ Returning simplified mock income statement data for {ticker}")
                 # Return simplified mock data structure for now
                 return {
                     'ticker': ticker,
@@ -638,7 +611,6 @@ class FMPService:
                     'net_margin': [20.0, 21.0, 22.0, 23.0],
                     'operating_income': [1000000000, 1100000000, 1200000000, 1300000000]
                 }
-            logger.warning(f"❌ No mock income statement data available for {ticker}")
             return None
         
         try:
@@ -744,7 +716,6 @@ class FMPService:
                         net_margin.append(ttm_net_margin_pct)
                         operating_income.append(ttm_operating_income)  # Full integer
             
-            logger.info(f"Successfully fetched income statement data for {ticker}: {len(quarters)} data points")
             return {
                 'ticker': ticker,
                 'quarters': quarters,
@@ -772,13 +743,10 @@ class FMPService:
         """
         # Use mock data if configured
         if self.use_mock_data:
-            logger.info(f"🔧 Using mock data for {ticker} quarterly income statement")
             self._handle_missing_stock(ticker, "income-statement")
             mock_data = self._load_mock_data("income-statement", ticker)
             if mock_data is not None:
-                logger.info(f"✅ Returning mock quarterly income statement data for {ticker}")
                 return mock_data
-            logger.warning(f"❌ No mock quarterly income statement data available for {ticker}")
             return None
         
         try:
@@ -799,7 +767,6 @@ class FMPService:
                 logger.warning(f"No quarterly income statement data returned from API for {ticker}")
                 return None
             
-            logger.info(f"Successfully fetched {len(data)} quarters of income statement data for {ticker}")
             return data
             
         except requests.exceptions.RequestException as e:
@@ -892,7 +859,6 @@ class FMPService:
                 'free_cash_flow': free_cash_flow
             }
             
-            logger.info(f"Successfully combined chart data for {ticker}: {len(quarters)} quarters")
             return result
             
         except Exception as e:
@@ -968,13 +934,10 @@ class FMPService:
         """
         # Use mock data if configured
         if self.use_mock_data:
-            logger.info(f"🔧 Using mock data for {ticker} quarterly analyst estimates")
             self._handle_missing_stock(ticker, "analyst-estimates")
             mock_data = self._load_quarterly_mock_data(ticker)
             if mock_data is not None:
-                logger.info(f"✅ Returning mock quarterly estimates data for {ticker}")
                 return mock_data
-            logger.warning(f"❌ No mock quarterly estimates data available for {ticker}")
             return []
         
         # Use live API
@@ -990,9 +953,6 @@ class FMPService:
             data = response.json()
             
             if isinstance(data, list):
-                logger.info(f"Successfully fetched {len(data)} quarterly analyst estimates for {ticker}")
-                if len(data) > 0:
-                    logger.info(f"📊 Sample quarterly FMP estimate: {data[0]}")
                 return data
             else:
                 logger.warning(f"Unexpected response format for {ticker} quarterly estimates: {type(data)}")
@@ -1018,13 +978,10 @@ class FMPService:
         """
         # Use mock data if configured
         if self.use_mock_data:
-            logger.info(f"🔧 Using mock data for {ticker} annual income statement")
             self._handle_missing_stock(ticker, "income-statement")
             mock_data = self._load_mock_data("income-statement", ticker)
             if mock_data is not None:
-                logger.info(f"✅ Returning mock annual income statement data for {ticker}")
                 return mock_data
-            logger.warning(f"❌ No mock annual income statement data available for {ticker}")
             return None
         
         try:
@@ -1044,7 +1001,6 @@ class FMPService:
                 logger.warning(f"No annual income statement data returned from API for {ticker}")
                 return None
             
-            logger.info(f"Successfully fetched {len(data)} years of income statement data for {ticker}")
             return data
             
         except requests.exceptions.RequestException as e:
