@@ -38,8 +38,8 @@ class ProjectionBaseDataResponse(BaseModel):
     """Model for projection base data response"""
     ticker: str
     # Stock info fields removed - use /info endpoint instead
-    revenue: Optional[float] = None
-    net_income: Optional[float] = None
+    revenue: Optional[int] = None
+    net_income: Optional[int] = None
     eps: Optional[float] = None
     net_income_margin: Optional[float] = None
     data_year: int
