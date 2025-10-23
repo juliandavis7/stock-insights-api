@@ -178,7 +178,7 @@ def get_projection_base_data(ticker: str = Query(..., description="Stock ticker 
         # Calculate net income margin if we have both net income and revenue
         net_income_margin = None
         if data.get('net_income') and data.get('revenue') and data['revenue'] > 0:
-            net_income_margin = round((data['net_income'] / data['revenue']) * 100, 2)
+            net_income_margin = int(round((data['net_income'] / data['revenue']) * 100))
         
         return ProjectionBaseDataResponse(
             ticker=data['ticker'],
