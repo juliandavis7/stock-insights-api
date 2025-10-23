@@ -64,7 +64,6 @@ class YFinanceService:
                 **extracted_metrics
             }
             
-            logger.info(f"Successfully fetched stock info for {ticker}")
             return result
             
         except Exception as e:
@@ -95,10 +94,8 @@ class YFinanceService:
             for source_name, forecast_data in forecast_sources:
                 try:
                     if forecast_data is not None and hasattr(forecast_data, 'empty') and not forecast_data.empty:
-                        logger.info(f"Successfully fetched earnings forecast for {ticker} from {source_name}")
                         return forecast_data
                     elif forecast_data is not None and not hasattr(forecast_data, 'empty'):
-                        logger.info(f"Successfully fetched earnings forecast for {ticker} from {source_name}")
                         return forecast_data
                 except:
                     continue
@@ -135,10 +132,8 @@ class YFinanceService:
             for source_name, forecast_data in forecast_sources:
                 try:
                     if forecast_data is not None and hasattr(forecast_data, 'empty') and not forecast_data.empty:
-                        logger.info(f"Successfully fetched revenue forecast for {ticker} from {source_name}")
                         return forecast_data
                     elif forecast_data is not None and not hasattr(forecast_data, 'empty'):
-                        logger.info(f"Successfully fetched revenue forecast for {ticker} from {source_name}")
                         return forecast_data
                 except:
                     continue
@@ -170,7 +165,6 @@ class YFinanceService:
             for field in price_fields:
                 price = info.get(field)
                 if price is not None:
-                    logger.info(f"Got current price for {ticker}: ${price}")
                     return float(price)
             
             logger.warning(f"No current price available for {ticker}")
@@ -196,7 +190,6 @@ class YFinanceService:
             
             shares = info.get('sharesOutstanding')
             if shares is not None:
-                logger.info(f"Got shares outstanding for {ticker}: {shares:,.0f}")
                 return float(shares)
             
             logger.warning(f"No shares outstanding data for {ticker}")
@@ -222,7 +215,6 @@ class YFinanceService:
             
             market_cap = info.get('marketCap')
             if market_cap is not None:
-                logger.info(f"Got market cap for {ticker}: ${market_cap:,.0f}")
                 return float(market_cap)
             
             logger.warning(f"No market cap data for {ticker}")
@@ -292,7 +284,6 @@ class YFinanceService:
                 
                 financial_data.append(year_data)
             
-            logger.info(f"Successfully fetched annual income statement for {ticker}")
             return financial_data
             
         except Exception as e:

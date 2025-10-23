@@ -24,24 +24,18 @@ class MetricsCalculator:
         quarterly_data: Optional[List[QuarterlyData]]
     ) -> Dict[str, MetricResult]:
         """Calculate P/E ratio metrics."""
-        logger.info(f"🔍 METRICS_CALCULATOR: Starting calculate_pe_metrics")
-        logger.info(f"🔍 METRICS_CALCULATOR: stock_info: {stock_info}")
-        logger.info(f"🔍 METRICS_CALCULATOR: fmp_estimates: {fmp_estimates}")
-        logger.info(f"🔍 METRICS_CALCULATOR: quarterly_data: {quarterly_data}")
-        
         results = {}
         
         if not stock_info.current_price:
-            logger.warning(f"🔍 METRICS_CALCULATOR: No current price available")
+            logger.warning("No current price available")
             return self._create_pe_failure_results("No current price available")
         
         # Get TTM EPS from quarterly data
         ttm_eps = None
         if quarterly_data and len(quarterly_data) >= MIN_QUARTERS_FOR_TTM:
             ttm_eps = sum(q.eps or 0 for q in quarterly_data[:QUARTERS_FOR_TTM])
-            logger.info(f"🔍 METRICS_CALCULATOR: Calculated TTM EPS: {ttm_eps}")
         else:
-            logger.warning(f"🔍 METRICS_CALCULATOR: Insufficient quarterly data for TTM EPS")
+            logger.warning("Insufficient quarterly data for TTM EPS")
         
         # Get forward EPS from estimates
         forward_eps = None
@@ -50,56 +44,32 @@ class MetricsCalculator:
         if fmp_estimates:
             eps_by_year = util.extract_metric_by_year(fmp_estimates, FMP_ESTIMATED_EPS_AVG)
             current_year = datetime.now().year
-            logger.info(f"🔍 METRICS_CALCULATOR: EPS by year: {eps_by_year}")
             
             forward_eps = eps_by_year.get(str(current_year + NEXT_YEAR_OFFSET))
             two_year_eps = eps_by_year.get(str(current_year + TWO_YEAR_FORWARD_OFFSET))
-            logger.info(f"🔍 METRICS_CALCULATOR: Forward EPS: {forward_eps}, Two-year EPS: {two_year_eps}")
         else:
-            logger.warning(f"🔍 METRICS_CALCULATOR: No FMP estimates available")
+            logger.warning("No FMP estimates available")
         
         # Calculate P/E ratios
-        logger.info(f"🔍 METRICS_CALCULATOR: Calculating P/E ratios")
         results[TTM_PE_KEY] = self._calculate_pe_ratio(stock_info.current_price, ttm_eps, "TTM")
         results[FORWARD_PE_KEY] = self._calculate_pe_ratio(stock_info.current_price, forward_eps, "Forward")
         results[TWO_YEAR_FORWARD_PE_KEY] = self._calculate_pe_ratio(stock_info.current_price, two_year_eps, "Two-year Forward")
         
-        logger.info(f"🔍 METRICS_CALCULATOR: P/E results: {results}")
         return results
     
     def calculate_growth_metrics(self, fmp_estimates: List[Dict], ticker: str, 
                                 income_data: List[Dict], quarterly_data: List[QuarterlyData], 
                                 quarterly_data_raw: List[Dict], quarterly_estimates: List[Dict]) -> Dict[str, MetricResult]:
         """Calculate growth metrics using inline methods."""
-        logger.info(f"🔍 METRICS_CALCULATOR: Starting calculate_growth_metrics for {ticker}")
-        logger.info(f"🔍 METRICS_CALCULATOR: fmp_estimates: {fmp_estimates}")
-        logger.info(f"🔍 METRICS_CALCULATOR: income_data: {income_data}")
-        logger.info(f"🔍 METRICS_CALCULATOR: quarterly_data: {quarterly_data}")
-        logger.info(f"🔍 METRICS_CALCULATOR: quarterly_data_raw: {quarterly_data_raw}")
-        logger.info(f"🔍 METRICS_CALCULATOR: quarterly_estimates: {quarterly_estimates}")
-        
         results = {}
         
-        logger.info(f"🔍 METRICS_CALCULATOR: Starting growth metrics calculation for {ticker}")
-        
-        logger.info(f"📊 METRICS_CALCULATOR: Data availability: income_data={bool(income_data)}, fmp_estimates={bool(fmp_estimates)}, quarterly_data={bool(quarterly_data)}, quarterly_estimates={bool(quarterly_estimates)}")
-        logger.info(f"📊 METRICS_CALCULATOR: Raw quarterly data: {len(quarterly_data_raw) if quarterly_data_raw else 0} records")
-        logger.info(f"📊 METRICS_CALCULATOR: Quarterly estimates: {len(quarterly_estimates) if quarterly_estimates else 0} records")
-        if quarterly_data_raw and len(quarterly_data_raw) > 0:
-            logger.info(f"📊 METRICS_CALCULATOR: Sample quarterly record: {quarterly_data_raw[0]}")
-        if quarterly_estimates and len(quarterly_estimates) > 0:
-            logger.info(f"📊 METRICS_CALCULATOR: Sample quarterly estimate: {quarterly_estimates[0]}")
-        
         # Current year EPS growth: Method 1C (GAAP-Adjusted Hybrid Median-Based)
-        logger.info(f"🔍 METRICS_CALCULATOR: Checking Method 1C requirements - quarterly_data_raw: {bool(quarterly_data_raw)}, quarterly_estimates: {bool(quarterly_estimates)}")
         if quarterly_data_raw and quarterly_estimates:
-            logger.info(f"✅ METRICS_CALCULATOR: Using Method 1C for current year EPS growth")
             # Method 1C requires quarterly estimates for proper GAAP adjustment
             results[CURRENT_YEAR_EPS_GROWTH_KEY] = self._calculate_current_year_eps_growth(
                 income_data, quarterly_estimates, quarterly_data, quarterly_data_raw
             )
         else:
-            logger.error(f"❌ METRICS_CALCULATOR: Falling back to old method - Missing data for Method 1C current year EPS growth: quarterly_data_raw={bool(quarterly_data_raw)}, quarterly_estimates={bool(quarterly_estimates)}")
             # Missing data for Method 1C
             results[CURRENT_YEAR_EPS_GROWTH_KEY] = MetricResult.failure(
                 f"Missing data for Method 1C EPS growth: quarterly_data_raw={bool(quarterly_data_raw)}, quarterly_estimates={bool(quarterly_estimates)}"
@@ -119,9 +89,7 @@ class MetricsCalculator:
             )
         
         # Next year EPS growth: Method 1C (GAAP-Adjusted Hybrid Median-Based)
-        logger.info(f"🔍 METRICS_CALCULATOR: Checking Method 1C requirements for next year - quarterly_estimates: {bool(quarterly_estimates)}, quarterly_data_raw: {bool(quarterly_data_raw)}")
         if quarterly_estimates and quarterly_data_raw:
-            logger.info(f"✅ METRICS_CALCULATOR: Using Method 1C for next year EPS growth")
             # Method 1C requires quarterly estimates for proper GAAP adjustment
             results[NEXT_YEAR_EPS_GROWTH_KEY] = self._calculate_next_year_eps_growth(
                 quarterly_estimates, quarterly_data, quarterly_estimates, quarterly_data_raw
@@ -145,77 +113,57 @@ class MetricsCalculator:
     
     def calculate_ttm_metrics(self, quarterly_data: List[QuarterlyData], stock_info: StockInfo) -> Dict[str, MetricResult]:
         """Calculate TTM-based metrics."""
-        logger.info(f"🔍 METRICS_CALCULATOR: Starting calculate_ttm_metrics")
-        logger.info(f"🔍 METRICS_CALCULATOR: quarterly_data: {quarterly_data}")
-        logger.info(f"🔍 METRICS_CALCULATOR: stock_info: {stock_info}")
-        
         results = {}
         
         if len(quarterly_data) < MIN_QUARTERS_FOR_TTM:
             error_msg = f"Insufficient quarterly data (need {MIN_QUARTERS_FOR_TTM}, got {len(quarterly_data)})"
-            logger.warning(f"🔍 METRICS_CALCULATOR: {error_msg}")
+            logger.warning(error_msg)
             return self._create_ttm_failure_results(error_msg)
         
         # Calculate TTM aggregates
-        logger.info(f"🔍 METRICS_CALCULATOR: Calculating TTM aggregates")
         ttm_values = self._calculate_ttm_aggregates(quarterly_data[:QUARTERS_FOR_TTM])
-        logger.info(f"🔍 METRICS_CALCULATOR: TTM values: {ttm_values}")
         
         # TTM P/E
         if stock_info.current_price:
-            logger.info(f"🔍 METRICS_CALCULATOR: Calculating TTM P/E")
             results[TTM_PE_KEY] = self._calculate_pe_ratio(
                 stock_info.current_price, ttm_values['eps'], "TTM"
             )
         
         # TTM P/S
         if stock_info.market_cap:
-            logger.info(f"🔍 METRICS_CALCULATOR: Calculating TTM P/S")
             results[TTM_PS_RATIO_KEY] = self._calculate_ps_ratio(
                 stock_info.market_cap, ttm_values['revenue']
             )
         
         # TTM Margins
-        logger.info(f"🔍 METRICS_CALCULATOR: Calculating TTM margins")
         results.update(self._calculate_ttm_margins(ttm_values))
         
         # TTM Growth rates
         if len(quarterly_data) >= MIN_QUARTERS_FOR_GROWTH:
-            logger.info(f"🔍 METRICS_CALCULATOR: Calculating TTM growth rates")
             results.update(self._calculate_ttm_growth_rates(quarterly_data))
         
-        logger.info(f"🔍 METRICS_CALCULATOR: TTM results: {results}")
         return results
     
     def calculate_ps_metrics(self, stock_info: StockInfo, forecast_data: Dict[str, Any]) -> Dict[str, MetricResult]:
         """Calculate P/S ratio metrics."""
-        logger.info(f"🔍 METRICS_CALCULATOR: Starting calculate_ps_metrics")
-        logger.info(f"🔍 METRICS_CALCULATOR: stock_info: {stock_info}")
-        logger.info(f"🔍 METRICS_CALCULATOR: forecast_data: {forecast_data}")
-        
         results = {}
         
         try:
             revenue_forecast = forecast_data.get('revenue_forecast')
-            logger.info(f"🔍 METRICS_CALCULATOR: revenue_forecast: {revenue_forecast}")
             
             if stock_info.market_cap and revenue_forecast:
-                logger.info(f"🔍 METRICS_CALCULATOR: Calculating forward P/S ratio")
                 forward_ps = util.get_forward_ps_ratio(stock_info.__dict__, revenue_forecast)
-                logger.info(f"🔍 METRICS_CALCULATOR: forward_ps result: {forward_ps}")
                 
                 if forward_ps:
                     results[FORWARD_PS_RATIO_KEY] = MetricResult.success(forward_ps)
                 else:
                     results[FORWARD_PS_RATIO_KEY] = MetricResult.failure("Could not calculate forward P/S ratio")
             else:
-                logger.warning(f"🔍 METRICS_CALCULATOR: Missing data for forward P/S calculation")
                 results[FORWARD_PS_RATIO_KEY] = MetricResult.failure("Missing data for forward P/S calculation")
         except Exception as e:
-            logger.error(f"❌ METRICS_CALCULATOR: Error calculating P/S metrics: {e}")
+            logger.error(f"Error calculating P/S metrics: {e}")
             results[FORWARD_PS_RATIO_KEY] = MetricResult.failure(f"P/S calculation error: {e}")
         
-        logger.info(f"🔍 METRICS_CALCULATOR: P/S results: {results}")
         return results
     
     # ============================================================================
@@ -338,7 +286,6 @@ class MetricsCalculator:
             current_year = datetime.now().year
             prev_year = current_year - 1
             
-            logger.info(f"🔍 METRICS_CALCULATOR: Starting Method 1C current year EPS growth calculation for {current_year}")
             
             # Method 1C: Get GAAP-adjusted hybrid data using the main method
             # Extract ticker from quarterly data if available, otherwise use a placeholder
@@ -350,13 +297,11 @@ class MetricsCalculator:
             # Method 1C: Get previous year quarterly sum (prior year quarterly actual data)
             prev_eps = self._get_previous_year_quarterly_sum(quarterly_data_raw, prev_year)
             
-            logger.info(f"🔍 METRICS_CALCULATOR: Current year adjusted EPS: {current_adj_eps}, Previous year EPS: {prev_eps}")
             
             if not self._is_positive_number(current_adj_eps) or not self._is_positive_number(prev_eps):
                 return MetricResult.failure("Invalid EPS data for growth calculation")
             
             growth = ((current_adj_eps - prev_eps) / abs(prev_eps)) * PERCENTAGE_MULTIPLIER
-            logger.info(f"🔍 METRICS_CALCULATOR: Method 1C EPS growth: {growth:.2f}%")
             return MetricResult.success(round(growth, GROWTH_PRECISION))
             
         except Exception as e:
@@ -392,7 +337,6 @@ class MetricsCalculator:
             current_year = datetime.now().year
             next_year = current_year + 1
             
-            logger.info(f"🔍 METRICS_CALCULATOR: Starting Method 1C next year EPS growth calculation for {current_year} → {next_year}")
             
             # Method 1C: Get GAAP-adjusted hybrid data using the main method
             # Extract ticker from quarterly data if available, otherwise use a placeholder
@@ -401,13 +345,11 @@ class MetricsCalculator:
                 ticker, current_year, quarterly_data_raw, estimates_data
             )
             
-            logger.info(f"🔍 METRICS_CALCULATOR: Current year adjusted EPS: {current_adj_eps}, Next year adjusted EPS: {next_adj_eps}")
             
             if not self._is_positive_number(current_adj_eps) or not self._is_positive_number(next_adj_eps):
                 return MetricResult.failure("Invalid EPS estimates for growth calculation")
             
             growth = ((next_adj_eps - current_adj_eps) / abs(current_adj_eps)) * PERCENTAGE_MULTIPLIER
-            logger.info(f"🔍 METRICS_CALCULATOR: Method 1C next year EPS growth: {growth:.2f}%")
             return MetricResult.success(round(growth, GROWTH_PRECISION))
             
         except Exception as e:
@@ -670,7 +612,6 @@ class MetricsCalculator:
         using the latest 4 quarters of actual data to adjust for GAAP vs non-GAAP differences using median-based scaling.
         The median is more robust to outliers than the average.
         """
-        logger.info(f"🔍 METRICS_CALCULATOR: Calculating GAAP median ratio using latest 4 quarters")
         
         ratios = []
         
@@ -681,7 +622,6 @@ class MetricsCalculator:
             
             # Take the latest 4 quarters
             latest_actual_quarters = actual_data_sorted[:4]
-            logger.info(f"🔍 METRICS_CALCULATOR: Found {len(latest_actual_quarters)} latest actual quarters")
             
             for i, actual_quarter in enumerate(latest_actual_quarters):
                 actual_date = actual_quarter['date']
@@ -696,39 +636,25 @@ class MetricsCalculator:
                 
                 if matching_estimate:
                     estimated_eps = matching_estimate.get('estimatedEpsAvg', 0)
-                    logger.info(f"🔍 METRICS_CALCULATOR: {actual_date}: Actual={actual_eps:.4f}, Estimate={estimated_eps:.4f}")
-                    
                     # Calculate ratio (actual / estimate) if both values are positive
                     if actual_eps > 0 and estimated_eps > 0:
                         ratio = actual_eps / estimated_eps
                         ratios.append(ratio)
-                        logger.info(f"🔍 METRICS_CALCULATOR: → Ratio={ratio:.4f}")
-                    elif actual_eps != 0 or estimated_eps != 0:
-                        logger.info(f"🔍 METRICS_CALCULATOR: → Skipped (one value is 0 or negative)")
-                    else:
-                        logger.info(f"🔍 METRICS_CALCULATOR: → Skipped (both values are 0)")
-                else:
-                    logger.info(f"🔍 METRICS_CALCULATOR: {actual_date}: Actual={actual_eps:.4f}, No matching estimate found")
         
         # Return median ratio, or 1.0 if no data available (no adjustment)
         if ratios:
             # Sort ratios and find median
             ratios.sort()
             n = len(ratios)
-            logger.info(f"🔍 METRICS_CALCULATOR: Sorted ratios: {[f'{r:.4f}' for r in ratios]}")
-            
             if n % 2 == 0:
                 # Even number of ratios - average of two middle values
                 median_ratio = (ratios[n//2 - 1] + ratios[n//2]) / 2
-                logger.info(f"🔍 METRICS_CALCULATOR: Median (even count): ({ratios[n//2 - 1]:.4f} + {ratios[n//2]:.4f}) / 2 = {median_ratio:.4f}")
             else:
                 # Odd number of ratios - middle value
                 median_ratio = ratios[n//2]
-                logger.info(f"🔍 METRICS_CALCULATOR: Median (odd count): {median_ratio:.4f} (middle value)")
             
             return median_ratio
         else:
-            logger.info(f"🔍 METRICS_CALCULATOR: ⚠️  No valid ratios found, using default 1.0")
             return 1.0
     
     def _get_median_adjusted_hybrid_current_year_eps(self, quarterly_data: List[Dict], estimates_data: List[Dict], 
@@ -737,48 +663,29 @@ class MetricsCalculator:
         Get median-adjusted hybrid current year EPS by adjusting estimates with historical
         GAAP vs non-GAAP median ratios to prevent growth inflation using robust median scaling.
         """
-        logger.info(f"🔍 METRICS_CALCULATOR: Starting Method 1C median-adjusted hybrid calculation for {target_year}")
-        
         quarters_elapsed = self._get_quarters_elapsed_in_year(target_year)
-        logger.info(f"🔍 METRICS_CALCULATOR: Quarters elapsed in {target_year}: {quarters_elapsed}")
         
         # Calculate GAAP vs estimate median ratio using latest 4 quarters of actual data
         median_gaap_ratio = self._calculate_gaap_estimate_median_ratio(quarterly_data, estimates_data)
-        logger.info(f"🔍 METRICS_CALCULATOR: Median GAAP ratio (actual/estimate): {median_gaap_ratio:.4f}")
         
         # Get all quarters data using fiscal year logic (matches script)
         actual_quarters = self._filter_data_by_fiscal_year(quarterly_data, target_year)
         estimate_quarters = self._filter_data_by_fiscal_year(estimates_data, target_year)
         
-        # Debug: Show what data we have
-        logger.info(f"🔍 METRICS_CALCULATOR: Actual quarters for {target_year}: {len(actual_quarters)} records")
-        for i, q in enumerate(actual_quarters[:4]):
-            logger.info(f"🔍 METRICS_CALCULATOR:   Actual Q{i+1}: {q.get('date')} EPS={q.get('eps', 0)}")
-        
-        logger.info(f"🔍 METRICS_CALCULATOR: Estimate quarters for {target_year}: {len(estimate_quarters)} records")
-        for i, q in enumerate(estimate_quarters[:4]):
-            logger.info(f"🔍 METRICS_CALCULATOR:   Estimate Q{i+1}: {q.get('date')} EPS={q.get('estimatedEpsAvg', 0)}")
-        
         total_eps = 0
         actual_eps_sum = 0
         estimated_eps_sum = 0
-        
-        logger.info(f"🔍 METRICS_CALCULATOR: Breaking down current year quarters:")
         
         # Process each quarter (Q1, Q2, Q3, Q4)
         # Note: quarters_elapsed=3 means Q1, Q2 are completed, Q3, Q4 are estimates
         for i in range(4):
             quarter_name = f"Q{i+1}"
             
-            # Debug: Show what we're checking
-            logger.info(f"🔍 METRICS_CALCULATOR: Processing {quarter_name}: i={i}, quarters_elapsed={quarters_elapsed}, actual_quarters_len={len(actual_quarters)}, estimate_quarters_len={len(estimate_quarters)}")
-            
             if i < quarters_elapsed and i < len(actual_quarters):
                 # Use actual data for completed quarters where actual data exists
                 quarter_eps = actual_quarters[i].get('eps', 0)
                 total_eps += quarter_eps
                 actual_eps_sum += quarter_eps
-                logger.info(f"🔍 METRICS_CALCULATOR:   {quarter_name}: {quarter_eps:.4f} (actual)")
             else:
                 # Use median-adjusted estimated data for all other quarters (future or missing actual)
                 if i < len(estimate_quarters):
@@ -789,14 +696,8 @@ class MetricsCalculator:
                     
                     total_eps += adjusted_eps
                     estimated_eps_sum += estimated_eps
-                    logger.info(f"🔍 METRICS_CALCULATOR:   {quarter_name}: {estimated_eps:.4f} × {median_gaap_ratio:.4f} = {adjusted_eps:.4f} (median-adjusted estimate)")
                 else:
-                    logger.warning(f"🔍 METRICS_CALCULATOR:   {quarter_name}: No estimate data available")
-        
-        logger.info(f"🔍 METRICS_CALCULATOR: Actual EPS sum: {actual_eps_sum:.4f}")
-        logger.info(f"🔍 METRICS_CALCULATOR: Estimated EPS sum (before adjustment): {estimated_eps_sum:.4f}")
-        logger.info(f"🔍 METRICS_CALCULATOR: Estimated EPS sum × Median GAAP ratio: {estimated_eps_sum:.4f} × {median_gaap_ratio:.4f} = {estimated_eps_sum * median_gaap_ratio:.4f}")
-        logger.info(f"🔍 METRICS_CALCULATOR: Total adjusted current year EPS: {total_eps:.4f}")
+                    logger.warning(f"No estimate data available for {quarter_name}")
         
         return total_eps
     
@@ -806,19 +707,14 @@ class MetricsCalculator:
         Get GAAP-adjusted next year EPS using median-based method.
         For next year, all are estimates, so apply full median ratio adjustment.
         """
-        logger.info(f"🔍 METRICS_CALCULATOR: Starting Method 1C next year median adjustment for {next_year}")
-        
         # Calculate GAAP vs estimate median ratio using latest 4 quarters of actual data
         median_gaap_ratio = self._calculate_gaap_estimate_median_ratio(quarterly_data, estimates_data)
-        logger.info(f"🔍 METRICS_CALCULATOR: Median GAAP ratio (actual/estimate): {median_gaap_ratio:.4f}")
         
         # Get next year quarterly estimates
         next_quarterly_est_eps = self._get_quarterly_estimates_eps(fmp_estimates, next_year, 4)
-        logger.info(f"🔍 METRICS_CALCULATOR: Next year ({next_year}) estimated EPS: {next_quarterly_est_eps:.4f}")
         
         # For next year, all are estimates, so apply full median ratio adjustment
         next_adj_eps = next_quarterly_est_eps * median_gaap_ratio
-        logger.info(f"🔍 METRICS_CALCULATOR: Next year adjusted EPS: {next_quarterly_est_eps:.4f} × {median_gaap_ratio:.4f} = {next_adj_eps:.4f}")
         
         return next_adj_eps
     
@@ -828,28 +724,21 @@ class MetricsCalculator:
         Only adjusts EPS using GAAP vs non-GAAP median ratios. Revenue is not adjusted.
         Returns: ((current_adj_eps, current_revenue), (next_adj_eps, next_revenue))
         """
-        logger.info(f"🔍 METRICS_CALCULATOR: Starting get_median_adjusted_hybrid_data for {ticker}, year {target_year}")
-        
         # Calculate GAAP vs estimate median ratio using latest 4 quarters of actual data
         median_gaap_ratio = self._calculate_gaap_estimate_median_ratio(quarterly_data, estimates_data)
-        logger.info(f"🔍 METRICS_CALCULATOR: Median GAAP ratio (actual/estimate): {median_gaap_ratio:.4f}")
         
         # Get current year hybrid data (actual + estimated quarters)
         current_hybrid_eps, current_hybrid_revenue = self._get_hybrid_current_year_eps_and_revenue(quarterly_data, estimates_data, target_year)
-        logger.info(f"🔍 METRICS_CALCULATOR: Current year ({target_year}) hybrid EPS: {current_hybrid_eps:.4f}, Revenue: {current_hybrid_revenue:.0f}")
         
         # Get next year estimates
         next_year = target_year + 1
         next_quarterly_est_eps = self._get_quarterly_estimates_eps(estimates_data, next_year, 4)
         next_quarterly_est_revenue = self._get_quarterly_estimates_revenue(estimates_data, next_year, 4)
-        logger.info(f"🔍 METRICS_CALCULATOR: Next year ({next_year}) estimated EPS: {next_quarterly_est_eps:.4f}, Revenue: {next_quarterly_est_revenue:.0f}")
         
         # Apply GAAP adjustment (multiply EPS estimates by median ratio, leave revenue unchanged)
         quarters_elapsed = self._get_quarters_elapsed_in_year(target_year)
-        logger.info(f"🔍 METRICS_CALCULATOR: Quarters elapsed in {target_year}: {quarters_elapsed}")
         
         if quarters_elapsed < 4:
-            logger.info(f"🔍 METRICS_CALCULATOR: Applying partial EPS adjustment (some quarters are estimates)")
             # Get the actual and estimated EPS components separately
             actual_data = quarterly_data
             actual_quarters = self._filter_data_by_fiscal_year(actual_data, target_year)
@@ -861,7 +750,6 @@ class MetricsCalculator:
             estimated_eps_sum = 0
             estimated_revenue_sum = 0
             
-            logger.info(f"🔍 METRICS_CALCULATOR: Breaking down current year quarters for adjustment:")
             for i in range(4):
                 quarter_name = f"Q{i+1}"
                 if i < quarters_elapsed and i < len(actual_quarters):
@@ -870,7 +758,6 @@ class MetricsCalculator:
                     quarter_revenue = actual_quarters[i].get('revenue', 0)
                     actual_eps_sum += quarter_eps
                     actual_revenue_sum += quarter_revenue
-                    logger.info(f"🔍 METRICS_CALCULATOR:   {quarter_name}: EPS={quarter_eps:.4f}, Revenue={quarter_revenue:.0f} (actual)")
                 else:
                     # Use estimated data for remaining quarters
                     if i < len(estimate_quarters):
@@ -878,28 +765,18 @@ class MetricsCalculator:
                         quarter_revenue = estimate_quarters[i].get('estimatedRevenueAvg', 0)
                         estimated_eps_sum += quarter_eps
                         estimated_revenue_sum += quarter_revenue
-                        logger.info(f"🔍 METRICS_CALCULATOR:   {quarter_name}: EPS={quarter_eps:.4f}, Revenue={quarter_revenue:.0f} (estimate)")
-            
-            logger.info(f"🔍 METRICS_CALCULATOR: Actual EPS sum: {actual_eps_sum:.4f}")
-            logger.info(f"🔍 METRICS_CALCULATOR: Estimated EPS sum: {estimated_eps_sum:.4f}")
-            logger.info(f"🔍 METRICS_CALCULATOR: Estimated EPS sum × Median GAAP ratio: {estimated_eps_sum:.4f} × {median_gaap_ratio:.4f} = {estimated_eps_sum * median_gaap_ratio:.4f}")
             
             # Apply median ratio adjustment only to estimated EPS portion
             current_adj_eps = actual_eps_sum + (estimated_eps_sum * median_gaap_ratio)
             current_adj_revenue = actual_revenue_sum + estimated_revenue_sum  # No adjustment for revenue
-            logger.info(f"🔍 METRICS_CALCULATOR: Current adjusted EPS: {actual_eps_sum:.4f} + {estimated_eps_sum * median_gaap_ratio:.4f} = {current_adj_eps:.4f}")
-            logger.info(f"🔍 METRICS_CALCULATOR: Current revenue (no adjustment): {current_adj_revenue:.0f}")
         else:
             # All quarters are actuals, no adjustment needed
             current_adj_eps = current_hybrid_eps
             current_adj_revenue = current_hybrid_revenue
-            logger.info(f"🔍 METRICS_CALCULATOR: ✅ All quarters are actuals, no EPS adjustment needed: {current_adj_eps:.4f}")
         
         # For next year, all are estimates, so apply full median ratio adjustment to EPS only
         next_adj_eps = next_quarterly_est_eps * median_gaap_ratio
         next_adj_revenue = next_quarterly_est_revenue  # No adjustment for revenue
-        logger.info(f"🔍 METRICS_CALCULATOR: Next year adjusted EPS: {next_quarterly_est_eps:.4f} × {median_gaap_ratio:.4f} = {next_adj_eps:.4f}")
-        logger.info(f"🔍 METRICS_CALCULATOR: Next year revenue (no adjustment): {next_adj_revenue:.0f}")
         
         return (current_adj_eps, current_adj_revenue), (next_adj_eps, next_adj_revenue)
     
