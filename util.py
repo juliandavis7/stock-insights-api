@@ -109,9 +109,42 @@ def extract_metric_by_year(fmp_data: List[Dict[str, Any]], metric: str) -> Dict[
 def extract_forecast_growth(forecast_data: Any, period: str) -> Optional[float]:
     """Extract growth rate from forecast data."""
     try:
+        # Handle pandas DataFrame format (legacy)
         if hasattr(forecast_data, 'loc'):
             growth_value = forecast_data.loc[period, 'growth']
             return round(float(growth_value) * 100, 2)
+        
+        # Handle FMP analyst estimates data (list of dictionaries)
+        if isinstance(forecast_data, list) and len(forecast_data) > 0:
+            from datetime import datetime
+            current_year = datetime.now().year
+            
+            # Find current year and next year data
+            current_year_data = None
+            next_year_data = None
+            
+            for estimate in forecast_data:
+                if not estimate.get('date'):
+                    continue
+                    
+                try:
+                    year = int(estimate['date'][:4])
+                    if year == current_year:
+                        current_year_data = estimate
+                    elif year == current_year + 1:
+                        next_year_data = estimate
+                except (ValueError, TypeError):
+                    continue
+            
+            # Calculate growth rate if we have both current and next year data
+            if current_year_data and next_year_data:
+                current_revenue = current_year_data.get('estimatedRevenueAvg')
+                next_revenue = next_year_data.get('estimatedRevenueAvg')
+                
+                if current_revenue and next_revenue and current_revenue > 0:
+                    growth_rate = ((next_revenue - current_revenue) / current_revenue) * 100
+                    return round(growth_rate, 2)
+        
         return None
     except (KeyError, IndexError, AttributeError, ValueError, TypeError):
         return None
@@ -221,22 +254,13 @@ def get_two_year_forward_pe(ticker: str, current_price: float, fmp_data: List[Di
 
 def get_metrics(ticker: str) -> Dict[str, Any]:
     """Get comprehensive stock metrics for a ticker."""
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    logger.info(f"🔍 UTIL: Starting get_metrics for ticker: {ticker}")
     try:
         from services.metrics_service import MetricsService
-        logger.info(f"🔍 UTIL: Creating MetricsService instance")
         service = MetricsService()
-        logger.info(f"🔍 UTIL: Calling service.get_metrics({ticker})")
         result = service.get_metrics(ticker)
-        logger.info(f"🔍 UTIL: Received result from service: {result}")
         return result
     except Exception as e:
-        logger.error(f"❌ UTIL: Error in get_metrics for {ticker}: {e}")
-        import traceback
-        logger.error(f"❌ UTIL: Full traceback: {traceback.format_exc()}")
+        logger.error(f"Error in get_metrics for {ticker}: {e}")
         raise
 
 
