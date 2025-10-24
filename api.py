@@ -28,9 +28,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173", 
-        "http://127.0.0.1:5173",  # React frontend local
-        "https://stock-insights-git-feature-vercel-julian-davis-projects.vercel.app"  # Vercel deployment
+        "http://127.0.0.1:5173"  # React frontend local
     ],
+    allow_origin_regex=r"https://stock-insights-.*\.vercel\.app",  # All Vercel preview deployments
     allow_credentials=True,
     allow_methods=["GET", "POST"],  # Only allow necessary methods
     allow_headers=["Content-Type", "Authorization"],  # Restrict headers
