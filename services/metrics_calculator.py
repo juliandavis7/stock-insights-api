@@ -701,6 +701,49 @@ class MetricsCalculator:
         
         return total_eps
     
+    def _get_median_adjusted_hybrid_current_year_net_income(self, quarterly_data: List[Dict], estimates_data: List[Dict], 
+                                                   target_year: int) -> Optional[float]:
+        """
+        Get median-adjusted hybrid current year net income by adjusting estimates with historical
+        GAAP vs non-GAAP median ratios. Only estimated quarters are adjusted, not actual quarters.
+        """
+        quarters_elapsed = self._get_quarters_elapsed_in_year(target_year)
+        
+        # Calculate GAAP vs estimate median ratio using latest 4 quarters of actual data
+        median_gaap_ratio = self._calculate_gaap_estimate_median_ratio(quarterly_data, estimates_data)
+        
+        # Get all quarters data using fiscal year logic
+        actual_quarters = self._filter_data_by_fiscal_year(quarterly_data, target_year)
+        estimate_quarters = self._filter_data_by_fiscal_year(estimates_data, target_year)
+        
+        total_net_income = 0
+        actual_net_income_sum = 0
+        estimated_net_income_sum = 0
+        
+        # Process each quarter (Q1, Q2, Q3, Q4)
+        for i in range(4):
+            quarter_name = f"Q{i+1}"
+            
+            if i < quarters_elapsed and i < len(actual_quarters):
+                # Use actual data for completed quarters (no adjustment)
+                quarter_net_income = actual_quarters[i].get('netIncome', 0)
+                total_net_income += quarter_net_income
+                actual_net_income_sum += quarter_net_income
+            else:
+                # Use median-adjusted estimated data for remaining quarters
+                if i < len(estimate_quarters):
+                    estimated_net_income = estimate_quarters[i].get('estimatedNetIncomeAvg', 0)
+                    
+                    # Adjust net income by multiplying with median GAAP ratio
+                    adjusted_net_income = estimated_net_income * median_gaap_ratio
+                    
+                    total_net_income += adjusted_net_income
+                    estimated_net_income_sum += estimated_net_income
+                else:
+                    logger.warning(f"No net income estimate data available for {quarter_name}")
+        
+        return total_net_income
+    
     def _get_median_adjusted_next_year_eps(self, fmp_estimates: List[Dict], quarterly_data: List[Dict], 
                                          estimates_data: List[Dict], next_year: int) -> Optional[float]:
         """
@@ -717,6 +760,23 @@ class MetricsCalculator:
         next_adj_eps = next_quarterly_est_eps * median_gaap_ratio
         
         return next_adj_eps
+    
+    def _get_median_adjusted_future_year_net_income(self, fmp_estimates: List[Dict], quarterly_data: List[Dict], 
+                                         estimates_data: List[Dict], target_year: int) -> Optional[float]:
+        """
+        Get GAAP-adjusted future year net income using median-based method.
+        For future years, all are estimates, so apply full median ratio adjustment to all 4 quarters.
+        """
+        # Calculate GAAP vs estimate median ratio using latest 4 quarters of actual data
+        median_gaap_ratio = self._calculate_gaap_estimate_median_ratio(quarterly_data, estimates_data)
+        
+        # Get future year quarterly estimates
+        future_quarterly_est_net_income = self._get_quarterly_estimates_net_income(fmp_estimates, target_year, 4)
+        
+        # For future years, all are estimates, so apply full median ratio adjustment
+        adjusted_net_income = future_quarterly_est_net_income * median_gaap_ratio
+        
+        return adjusted_net_income
     
     def get_median_adjusted_hybrid_data(self, ticker: str, target_year: int, quarterly_data: List[Dict], estimates_data: List[Dict]) -> Tuple[Tuple[float, float], Tuple[float, float]]:
         """
