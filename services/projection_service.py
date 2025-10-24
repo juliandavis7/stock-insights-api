@@ -323,13 +323,14 @@ class ProjectionService:
                     from .metrics_calculator import MetricsCalculator
                     calculator = MetricsCalculator()
                     
-                    # Calculate hybrid current year revenue
+                    # Calculate hybrid current year revenue (no GAAP adjustment for revenue)
                     revenue = calculator._get_hybrid_current_year_revenue(
                         quarterly_data, quarterly_estimates, current_year
                     )
                     
-                    # Calculate hybrid current year net income
-                    net_income = calculator._get_hybrid_current_year_net_income(
+                    # Calculate hybrid current year net income with GAAP adjustments
+                    # GAAP adjustments only applied to estimated quarters, not actual quarters
+                    net_income = calculator._get_median_adjusted_hybrid_current_year_net_income(
                         quarterly_data, quarterly_estimates, current_year
                     )
                     

@@ -4,10 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict
 import httpx
 import logging
+from datetime import datetime
 from models import MetricsResponse, ProjectionRequest, ProjectionResponse, ProjectionBaseDataResponse, ErrorResponse, FinancialStatementResponse, FinancialDataResponse, AnalystEstimateResponse, ComprehensiveFinancialResponse
 from util import get_metrics, fetch_fmp_analyst_estimates, extract_metric_by_year, calculate_financial_projections, validate_projection_inputs, fetch_chart_data, fetch_enhanced_chart_data
 from services.projection_service import ProjectionService
 from services.yfinance_service import YFinanceService
+from services.fmp_service import FMPService
 from constants.constants import FMP_API_KEY
 from auth import verify_token
 
@@ -20,6 +22,8 @@ logging.basicConfig(
         logging.FileHandler('api.log')
     ]
 )
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -372,64 +376,156 @@ def get_financials(ticker: str = Query(..., description="Stock ticker symbol"), 
     """
     try:
         yfinance_service = YFinanceService()
-        financial_data = yfinance_service.get_annual_income_statement(ticker.upper())
+        fmp_service = FMPService()
         
-        if not financial_data:
+        # Get quarterly income statement data (from FMP API or mocks)
+        quarterly_data = fmp_service.fetch_quarterly_income_statement(ticker.upper())
+        
+        if not quarterly_data:
             raise HTTPException(
                 status_code=404,
-                detail=f"No financial data available for ticker {ticker}"
+                detail=f"No quarterly financial data available for ticker {ticker}"
             )
         
-        # Stock info removed - use /info endpoint instead
-        
-        # Convert historical data to FinancialDataResponse objects
+        # Derive historical annual data from quarterly data (sum by calendar year)
+        # This ensures consistency with the estimates approach
         historical_data = []
+        current_year = datetime.now().year
         
-        for year_data in financial_data:
-            processed_year = FinancialDataResponse(
-                fiscalYear=year_data.get("fiscalYear"),
-                totalRevenue=year_data.get("totalRevenue"),
-                costOfRevenue=year_data.get("costOfRevenue"),
-                grossProfit=year_data.get("grossProfit"),
-                sellingGeneralAndAdministrative=year_data.get("sellingGeneralAndAdministrative"),
-                researchAndDevelopment=year_data.get("researchAndDevelopment"),
-                operatingExpenses=year_data.get("operatingExpenses"),
-                operatingIncome=year_data.get("operatingIncome"),
-                netIncome=year_data.get("netIncome"),
-                eps=year_data.get("eps"),
-                dilutedEps=year_data.get("dilutedEps")
-            )
-            historical_data.append(processed_year)
+        # Group quarterly data by calendar year
+        year_data_map = {}
+        for quarter in quarterly_data:
+            # Extract calendar year from date (e.g., "2024-12-31" -> 2024)
+            date_str = quarter.get('date', '')
+            if date_str:
+                year = int(date_str.split('-')[0])
+                
+                # Skip current and future years (only completed years)
+                if year >= current_year:
+                    continue
+                
+                if year not in year_data_map:
+                    year_data_map[year] = {
+                        'quarters': [],
+                        'totalRevenue': 0,
+                        'costOfRevenue': 0,
+                        'grossProfit': 0,
+                        'sellingGeneralAndAdministrative': 0,
+                        'researchAndDevelopment': 0,
+                        'operatingExpenses': 0,
+                        'operatingIncome': 0,
+                        'netIncome': 0,
+                        'eps': 0,
+                        'epsDiluted': 0
+                    }
+                
+                # Accumulate quarterly values
+                year_data_map[year]['quarters'].append(quarter)
+                year_data_map[year]['totalRevenue'] += quarter.get('revenue', 0) or 0
+                year_data_map[year]['costOfRevenue'] += quarter.get('costOfRevenue', 0) or 0
+                year_data_map[year]['grossProfit'] += quarter.get('grossProfit', 0) or 0
+                year_data_map[year]['sellingGeneralAndAdministrative'] += quarter.get('sellingGeneralAndAdministrativeExpenses', 0) or 0
+                year_data_map[year]['researchAndDevelopment'] += quarter.get('researchAndDevelopmentExpenses', 0) or 0
+                year_data_map[year]['operatingExpenses'] += quarter.get('operatingExpenses', 0) or 0
+                year_data_map[year]['operatingIncome'] += quarter.get('operatingIncome', 0) or 0
+                year_data_map[year]['netIncome'] += quarter.get('netIncome', 0) or 0
+                year_data_map[year]['eps'] += quarter.get('eps', 0) or 0
+                year_data_map[year]['epsDiluted'] += quarter.get('epsDiluted', 0) or 0
         
-        # Generate mock analyst estimates for 2025-2027
-        # Get latest year's data as baseline for growth projections
-        latest_year_data = financial_data[0] if financial_data else {}
-        base_revenue = latest_year_data.get("totalRevenue", 100000000000)  # Default 100B
-        base_net_income = latest_year_data.get("netIncome", 10000000000)   # Default 10B
-        base_eps = latest_year_data.get("eps", 5.0)                       # Default 5.0
-        base_diluted_eps = latest_year_data.get("dilutedEps", 4.95)       # Default 4.95
-        
-        # Mock analyst estimates with realistic growth assumptions
-        estimates_data = []
-        growth_rates = [0.08, 0.12, 0.10]  # 8%, 12%, 10% growth for 2025, 2026, 2027
-        
-        for i, year in enumerate([2025, 2026, 2027]):
-            cumulative_growth = 1
-            for j in range(i + 1):
-                cumulative_growth *= (1 + growth_rates[j])
+        # Convert to FinancialDataResponse objects (only years with 4 complete quarters)
+        for year in sorted(year_data_map.keys(), reverse=True):
+            year_summary = year_data_map[year]
             
-            estimate = AnalystEstimateResponse(
-                fiscalYear=str(year),
-                totalRevenue=int(base_revenue * cumulative_growth) if base_revenue else None,
-                netIncome=int(base_net_income * cumulative_growth) if base_net_income else None,
-                eps=round(base_eps * cumulative_growth, 2) if base_eps else None,
-                dilutedEps=round(base_diluted_eps * cumulative_growth, 2) if base_diluted_eps else None
+            # Only include years with 4 complete quarters
+            if len(year_summary['quarters']) == 4:
+                processed_year = FinancialDataResponse(
+                    fiscalYear=str(year),
+                    totalRevenue=int(year_summary['totalRevenue']),
+                    costOfRevenue=int(year_summary['costOfRevenue']),
+                    grossProfit=int(year_summary['grossProfit']),
+                    sellingGeneralAndAdministrative=int(year_summary['sellingGeneralAndAdministrative']),
+                    researchAndDevelopment=int(year_summary['researchAndDevelopment']),
+                    operatingExpenses=int(year_summary['operatingExpenses']),
+                    operatingIncome=int(year_summary['operatingIncome']),
+                    netIncome=int(year_summary['netIncome']),
+                    eps=round(year_summary['eps'], 2),
+                    dilutedEps=round(year_summary['epsDiluted'], 2)
+                )
+                historical_data.append(processed_year)
+            else:
+                logger.warning(f"Skipping year {year} - only {len(year_summary['quarters'])} quarters available")
+        
+        # Generate analyst estimates for 2025-2027 using GAAP-adjusted hybrid approach
+        # This matches the /projections endpoint behavior
+        estimates_data = []
+        
+        try:
+            # Get quarterly data and estimates from FMP
+            quarterly_data = fmp_service.fetch_quarterly_income_statement(ticker)
+            quarterly_estimates = fmp_service.fetch_quarterly_analyst_estimates(ticker)
+            
+            if quarterly_data and quarterly_estimates:
+                from services.metrics_calculator import MetricsCalculator
+                calculator = MetricsCalculator()
+                
+                # Get shares outstanding for EPS calculation
+                stock_info = yfinance_service.fetch_stock_info(ticker)
+                shares_outstanding = stock_info.get('shares_outstanding') if stock_info else None
+                
+                for year in [2025, 2026, 2027]:
+                    try:
+                        if year == current_year:  # Current year (2025)
+                            # Use GAAP-adjusted hybrid approach (actual quarters + adjusted estimated quarters)
+                            net_income = calculator._get_median_adjusted_hybrid_current_year_net_income(
+                                quarterly_data, quarterly_estimates, year
+                            )
+                            revenue = calculator._get_hybrid_current_year_revenue(
+                                quarterly_data, quarterly_estimates, year
+                            )
+                        else:  # Future years (2026, 2027)
+                            # Use GAAP-adjusted estimates for all 4 quarters
+                            net_income = calculator._get_median_adjusted_future_year_net_income(
+                                quarterly_estimates, quarterly_data, quarterly_estimates, year
+                            )
+                            revenue = calculator._get_quarterly_estimates_revenue(
+                                quarterly_estimates, year, 4
+                            )
+                        
+                        # Calculate EPS and diluted EPS from net income
+                        eps = None
+                        diluted_eps = None
+                        if net_income and shares_outstanding and shares_outstanding > 0:
+                            eps = net_income / shares_outstanding
+                            diluted_eps = eps * 0.99  # Assume 1% dilution
+                        
+                        estimate = AnalystEstimateResponse(
+                            fiscalYear=str(year),
+                            totalRevenue=int(revenue) if revenue else None,
+                            netIncome=int(net_income) if net_income else None,
+                            eps=round(eps, 2) if eps else None,
+                            dilutedEps=round(diluted_eps, 2) if diluted_eps else None
+                        )
+                        estimates_data.append(estimate)
+                        
+                    except Exception as e:
+                        logger.error(f"Error calculating GAAP-adjusted data for {ticker} {year}: {e}")
+                        raise
+            else:
+                logger.error(f"Insufficient FMP data for {ticker}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Insufficient data available for ticker {ticker}"
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in GAAP-adjusted calculations for {ticker}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error calculating estimates: {str(e)}"
             )
-            estimates_data.append(estimate)
         
         return ComprehensiveFinancialResponse(
             ticker=ticker.upper(),
-            # Stock info fields removed - use /info endpoint instead
             historical=historical_data,
             estimates=estimates_data
         )
