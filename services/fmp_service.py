@@ -107,8 +107,9 @@ class FMPService:
         try:
             current_year = datetime.now().year
             # For TTM mode, we need data starting from 2022 to calculate TTM for Q1 2023
-            # For quarterly mode, we can use 2 years back
+            # For quarterly mode, show 2 years back through 3 years forward (e.g., 2023-2028 when current is 2025)
             cutoff_year = 2022 if mode == 'ttm' else current_year - 2
+            max_year = current_year + 5 if mode == 'ttm' else current_year + 3
             
             if not data:
                 logger.warning(f"No estimates data for {ticker}")
@@ -132,13 +133,13 @@ class FMPService:
                     except:
                         continue
                     
-                    # Only include data from cutoff_year onwards
-                    if year_value >= cutoff_year:
+                    # Only include data from cutoff_year to max_year
+                    if cutoff_year <= year_value <= max_year:
                         quarter_label = self._date_to_quarter(estimate['date'])
                         
                         if quarter_label:
                             quarter_year = int(quarter_label.split()[0])
-                            if quarter_year >= cutoff_year:
+                            if cutoff_year <= quarter_year <= max_year:
                                 estimate['quarter_label'] = quarter_label
                                 filtered_data.append(estimate)
             
@@ -441,7 +442,8 @@ class FMPService:
         # Use mock data if configured
         if self.use_mock_data:
             self._handle_missing_stock(ticker, "analyst-estimates")
-            mock_data = self._load_mock_data("analyst-estimates", ticker)
+            # Load quarterly analyst estimates instead of annual
+            mock_data = self._load_quarterly_mock_data(ticker)
             if mock_data is not None:
                 # Process mock data the same way as live data
                 return self._process_estimates_data(mock_data, ticker, mode)
@@ -492,26 +494,56 @@ class FMPService:
         Returns:
             Dictionary with ticker, quarters, operating_cash_flow, free_cash_flow arrays or None if failed
         """
+        # Use mock data if configured
+        if self.use_mock_data:
+            self._handle_missing_stock(ticker, "cash-flow-statement")
+            mock_data = self._load_mock_data("cash-flow-statement", ticker)
+            if mock_data is not None:
+                # Process mock data the same way as live API data
+                data = mock_data
+            else:
+                logger.warning(f"Failed to load mock cash flow data for {ticker}")
+                return None
+        else:
+            # Use live API
+            try:
+                # API call to cash flow statement endpoint
+                url = f"{self.base_url_v3}/cash-flow-statement/{ticker}"
+                params = {
+                    'period': 'quarter',
+                    'limit': 50,  # Get enough historical data
+                    'apikey': self.api_key
+                }
+                
+                response = requests.get(url, params=params, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                
+                if not data:
+                    logger.warning(f"No cash flow data returned from API for {ticker}")
+                    return {
+                        'ticker': ticker,
+                        'quarters': [],
+                        'operating_cash_flow': [],
+                        'free_cash_flow': []
+                    }
+            except requests.exceptions.RequestException as e:
+                logger.error(f"FMP API request failed for cash flow data {ticker}: {e}")
+                return None
+            except Exception as e:
+                logger.error(f"Unexpected error fetching cash flow data for {ticker}: {e}")
+                return None
+        
+        # Process the data (works for both mock and live API)
         try:
             current_year = datetime.now().year
             # For TTM mode, we need data starting from 2022 to calculate TTM for Q1 2023
-            # For quarterly mode, we can use 2 years back
+            # For quarterly mode, show 2 years back through 3 years forward (e.g., 2023-2028 when current is 2025)
             cutoff_year = 2022 if mode == 'ttm' else current_year - 2
-            
-            # API call to cash flow statement endpoint
-            url = f"{self.base_url_v3}/cash-flow-statement/{ticker}"
-            params = {
-                'period': 'quarter',
-                'limit': 50,  # Get enough historical data
-                'apikey': self.api_key
-            }
-            
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
+            max_year = current_year + 5 if mode == 'ttm' else current_year + 3
             
             if not data:
-                logger.warning(f"No cash flow data returned from API for {ticker}")
+                logger.warning(f"No cash flow data to process for {ticker}")
                 return {
                     'ticker': ticker,
                     'quarters': [],
@@ -536,13 +568,13 @@ class FMPService:
                     except:
                         continue
                     
-                    # Include data from cutoff_year onwards
-                    if date_year >= cutoff_year:
+                    # Include data from cutoff_year to max_year
+                    if cutoff_year <= date_year <= max_year:
                         quarter_label = self._date_to_calendar_quarter(quarter_date)
                         
                         if quarter_label:
                             quarter_year = int(quarter_label.split()[0])
-                            if quarter_year >= cutoff_year:
+                            if cutoff_year <= quarter_year <= max_year:
                                 quarter['quarter_label'] = quarter_label
                                 filtered_data.append(quarter)
             
@@ -579,11 +611,8 @@ class FMPService:
                 'free_cash_flow': free_cash_flow
             }
             
-        except requests.exceptions.RequestException as e:
-            logger.error(f"FMP API request failed for cash flow data {ticker}: {e}")
-            return None
         except Exception as e:
-            logger.error(f"Unexpected error fetching cash flow data for {ticker}: {e}")
+            logger.error(f"Error processing cash flow data for {ticker}: {e}")
             return None
 
     def fetch_income_statement_data(self, ticker: str, mode: str = 'quarterly') -> Optional[Dict[str, Any]]:
@@ -603,37 +632,53 @@ class FMPService:
             self._handle_missing_stock(ticker, "income-statement")
             mock_data = self._load_mock_data("income-statement", ticker)
             if mock_data is not None:
-                # Return simplified mock data structure for now
-                return {
-                    'ticker': ticker,
-                    'quarters': ['2024 Q1', '2024 Q2', '2024 Q3', '2024 Q4'],
-                    'gross_margin': [45.0, 46.0, 47.0, 48.0],
-                    'net_margin': [20.0, 21.0, 22.0, 23.0],
-                    'operating_income': [1000000000, 1100000000, 1200000000, 1300000000]
+                # Process mock data the same way as live API data
+                data = mock_data
+            else:
+                logger.warning(f"Failed to load mock income statement data for {ticker}")
+                return None
+        else:
+            # Use live API
+            try:
+                # API call to income statement endpoint
+                url = f"{self.base_url_stable}/income-statement"
+                params = {
+                    'symbol': ticker,
+                    'period': 'quarter',
+                    'limit': 40,  # Get enough historical data
+                    'apikey': self.api_key
                 }
-            return None
+                
+                response = requests.get(url, params=params, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                
+                if not data:
+                    logger.warning(f"No income statement data returned from API for {ticker}")
+                    return {
+                        'ticker': ticker,
+                        'quarters': [],
+                        'gross_margin': [],
+                        'net_margin': [],
+                        'operating_income': []
+                    }
+            except requests.exceptions.RequestException as e:
+                logger.error(f"FMP API request failed for income statement data {ticker}: {e}")
+                return None
+            except Exception as e:
+                logger.error(f"Unexpected error fetching income statement data for {ticker}: {e}")
+                return None
         
+        # Process the data (works for both mock and live API)
         try:
             current_year = datetime.now().year
             # For TTM mode, we need data starting from 2022 to calculate TTM for Q1 2023
-            # For quarterly mode, we can use 2 years back
+            # For quarterly mode, show 2 years back through 3 years forward (e.g., 2023-2028 when current is 2025)
             cutoff_year = 2022 if mode == 'ttm' else current_year - 2
-            
-            # API call to income statement endpoint
-            url = f"{self.base_url_stable}/income-statement"
-            params = {
-                'symbol': ticker,
-                'period': 'quarter',
-                'limit': 40,  # Get enough historical data
-                'apikey': self.api_key
-            }
-            
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
+            max_year = current_year + 5 if mode == 'ttm' else current_year + 3
             
             if not data:
-                logger.warning(f"No income statement data returned from API for {ticker}")
+                logger.warning(f"No income statement data to process for {ticker}")
                 return {
                     'ticker': ticker,
                     'quarters': [],
@@ -662,13 +707,13 @@ class FMPService:
                 except:
                     continue
                 
-                # Include data from cutoff_year onwards
-                if date_year >= cutoff_year:
+                # Include data from cutoff_year to max_year
+                if cutoff_year <= date_year <= max_year:
                     quarter_label = self._date_to_calendar_quarter(quarter_date)
                     
                     if quarter_label:
                         quarter_year = int(quarter_label.split()[0])
-                        if quarter_year >= cutoff_year:
+                        if cutoff_year <= quarter_year <= max_year:
                             quarter['quarter_label'] = quarter_label
                             filtered_data.append(quarter)
             
@@ -724,11 +769,8 @@ class FMPService:
                 'operating_income': operating_income
             }
             
-        except requests.exceptions.RequestException as e:
-            logger.error(f"FMP API request failed for income statement data {ticker}: {e}")
-            return None
         except Exception as e:
-            logger.error(f"Unexpected error fetching income statement data for {ticker}: {e}")
+            logger.error(f"Error processing income statement data for {ticker}: {e}")
             return None
 
     def fetch_quarterly_income_statement(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
@@ -795,11 +837,15 @@ class FMPService:
                 logger.error(f"Failed to fetch estimates data for {ticker}")
                 return None
             
+            logger.info(f"📊 Chart Data - {ticker} {mode}: Got {len(estimates_data.get('quarters', []))} quarters from estimates")
+            
             # Get income statement data (margins and operating income) 
             income_data = self.fetch_income_statement_data(ticker, mode)
             if not income_data:
                 logger.error(f"Failed to fetch income statement data for {ticker}")
                 return None
+            
+            logger.info(f"📊 Chart Data - {ticker} {mode}: Got {len(income_data.get('quarters', []))} quarters from income statement")
             
             # Get cash flow data (operating and free cash flow)
             cash_flow_data = self.fetch_cash_flow_data(ticker, mode)
@@ -810,42 +856,54 @@ class FMPService:
                     'operating_cash_flow': [],
                     'free_cash_flow': []
                 }
+            else:
+                logger.info(f"📊 Chart Data - {ticker} {mode}: Got {len(cash_flow_data.get('quarters', []))} quarters from cash flow")
             
             # Combine the data - use estimates quarters as primary reference
             quarters = estimates_data['quarters']
             revenue = estimates_data['revenue']
             eps = estimates_data['eps']
             
+            logger.info(f"📊 Chart Data - {ticker} {mode}: Aligning data for quarters: {quarters[:5]}... (showing first 5)")
+            
             # Align income statement data with estimates quarters
             gross_margin = []
             net_margin = []
             operating_income = []
             
+            matched_income_quarters = 0
             for quarter in quarters:
                 if quarter in income_data['quarters']:
                     idx = income_data['quarters'].index(quarter)
                     gross_margin.append(income_data['gross_margin'][idx])
                     net_margin.append(income_data['net_margin'][idx])
                     operating_income.append(income_data['operating_income'][idx])
+                    matched_income_quarters += 1
                 else:
                     # Quarter not found in income data - set as null for future projections
                     gross_margin.append(None)
                     net_margin.append(None)
                     operating_income.append(None)
             
+            logger.info(f"📊 Chart Data - {ticker} {mode}: Matched {matched_income_quarters}/{len(quarters)} quarters with income statement data")
+            
             # Align cash flow data with estimates quarters
             operating_cash_flow = []
             free_cash_flow = []
             
+            matched_cashflow_quarters = 0
             for quarter in quarters:
                 if quarter in cash_flow_data['quarters']:
                     idx = cash_flow_data['quarters'].index(quarter)
                     operating_cash_flow.append(cash_flow_data['operating_cash_flow'][idx])
                     free_cash_flow.append(cash_flow_data['free_cash_flow'][idx])
+                    matched_cashflow_quarters += 1
                 else:
                     # Quarter not found in cash flow data - set as null for future projections
                     operating_cash_flow.append(None)
                     free_cash_flow.append(None)
+            
+            logger.info(f"📊 Chart Data - {ticker} {mode}: Matched {matched_cashflow_quarters}/{len(quarters)} quarters with cash flow data")
             
             result = {
                 'ticker': ticker,
