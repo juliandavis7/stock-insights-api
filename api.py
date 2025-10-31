@@ -10,10 +10,11 @@ from datetime import datetime
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
 from models import MetricsResponse, ProjectionRequest, ProjectionResponse, ProjectionBaseDataResponse, ErrorResponse, FinancialStatementResponse, FinancialDataResponse, AnalystEstimateResponse, ComprehensiveFinancialResponse
-from util import get_metrics, extract_metric_by_year, calculate_financial_projections, validate_projection_inputs, fetch_chart_data, fetch_enhanced_chart_data
+from util import get_metrics, extract_metric_by_year, calculate_financial_projections, fetch_chart_data, fetch_enhanced_chart_data
 from services.projection_service import ProjectionService
 from services.yfinance_service import YFinanceService
 from services.fmp_service import FMPService
+from services.validators import validate_ticker_or_raise, validate_projection_inputs
 from constants.constants import FMP_API_KEY
 from auth import verify_token
 
@@ -101,7 +102,19 @@ def metrics(request: Request, ticker: str = Query(..., description="Stock ticker
     try:
         data = get_metrics(ticker)
         return JSONResponse(content=data)
+    except ValueError as e:
+        # ValueError raised by FMPService when ticker not found in mocks
+        logger.error(f"❌ API: Ticker {ticker} not found: {e}")
+        validate_ticker_or_raise(ticker)
+    except HTTPException:
+        raise
     except Exception as e:
+        # Check if it's a ticker not found error from FMP API
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['not found', 'invalid symbol', 'unknown symbol', 'invalid ticker']):
+            logger.error(f"❌ API: Ticker {ticker} not found in FMP API: {e}")
+            validate_ticker_or_raise(ticker)
+        
         logging.error(f"❌ API: Error in metrics endpoint for {ticker}: {e}")
         import traceback
         logging.error(f"❌ API: Full traceback: {traceback.format_exc()}")
@@ -167,8 +180,20 @@ async def create_financial_projections(
         
         response_data = ProjectionResponse(**result)
         return JSONResponse(content=response_data.dict())
-        
+    
+    except ValueError as e:
+        # ValueError raised by FMPService when ticker not found in mocks
+        logger.error(f"❌ API: Ticker {ticker} not found: {e}")
+        validate_ticker_or_raise(ticker)
+    except HTTPException:
+        raise
     except Exception as e:
+        # Check if it's a ticker not found error from FMP API
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['not found', 'invalid symbol', 'unknown symbol', 'invalid ticker']):
+            logger.error(f"❌ API: Ticker {ticker} not found in FMP API: {e}")
+            validate_ticker_or_raise(ticker)
+        
         raise HTTPException(
             status_code=500,
             detail={
@@ -196,13 +221,8 @@ def get_projection_base_data(request: Request, ticker: str = Query(..., descript
         data = projection_service.get_stock_current_data(ticker.upper(), FMP_API_KEY)
         
         if not data:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error": f"Unable to fetch data for ticker {ticker}",
-                    "ticker": ticker.upper()
-                }
-            )
+            logger.error(f"❌ API: Unable to fetch projection data for ticker {ticker}")
+            validate_ticker_or_raise(ticker)
         
         # Calculate net income margin if we have both net income and revenue
         net_income_margin = None
@@ -219,10 +239,20 @@ def get_projection_base_data(request: Request, ticker: str = Query(..., descript
             data_year=data['data_year']
         )
         return JSONResponse(content=response_data.dict())
-        
+    
+    except ValueError as e:
+        # ValueError raised by FMPService when ticker not found in mocks
+        logger.error(f"❌ API: Ticker {ticker} not found: {e}")
+        validate_ticker_or_raise(ticker)
     except HTTPException:
         raise
     except Exception as e:
+        # Check if it's a ticker not found error from FMP API
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['not found', 'invalid symbol', 'unknown symbol', 'invalid ticker']):
+            logger.error(f"❌ API: Ticker {ticker} not found in FMP API: {e}")
+            validate_ticker_or_raise(ticker)
+        
         raise HTTPException(
             status_code=500,
             detail={
@@ -407,10 +437,8 @@ def get_financials(request: Request, ticker: str = Query(..., description="Stock
         quarterly_data = fmp_service.fetch_quarterly_income_statement(ticker.upper())
         
         if not quarterly_data:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No quarterly financial data available for ticker {ticker}"
-            )
+            logger.error(f"❌ API: No quarterly financial data available for ticker {ticker}")
+            validate_ticker_or_raise(ticker)
         
         # Derive historical annual data from quarterly data (sum by calendar year)
         # This ensures consistency with the estimates approach
@@ -569,10 +597,20 @@ def get_financials(request: Request, ticker: str = Query(..., description="Stock
             estimates=estimates_data
         )
         return JSONResponse(content=response_data.dict())
-        
+    
+    except ValueError as e:
+        # ValueError raised by FMPService when ticker not found in mocks
+        logger.error(f"❌ API: Ticker {ticker} not found: {e}")
+        validate_ticker_or_raise(ticker)
     except HTTPException:
         raise
     except Exception as e:
+        # Check if it's a ticker not found error from FMP API
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['not found', 'invalid symbol', 'unknown symbol', 'invalid ticker']):
+            logger.error(f"❌ API: Ticker {ticker} not found in FMP API: {e}")
+            validate_ticker_or_raise(ticker)
+        
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(e)}"
@@ -599,10 +637,8 @@ def get_info(request: Request, ticker: str = Query(..., description="Stock ticke
         # Get current price
         current_price = yfinance_service.get_current_price(ticker.upper())
         if current_price is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Unable to fetch price data for ticker {ticker}"
-            )
+            logger.error(f"❌ API: Unable to fetch price data for ticker {ticker}")
+            validate_ticker_or_raise(ticker)
         
         # Get market cap
         market_cap = yfinance_service.get_market_cap(ticker.upper())
@@ -619,6 +655,10 @@ def get_info(request: Request, ticker: str = Query(..., description="Stock ticke
                 
                 if shares_outstanding:
                     logger.info(f"Using diluted shares from FMP for {ticker}: {shares_outstanding:,.0f}")
+        except ValueError as ve:
+            # ValueError from FMPService for missing ticker in mocks
+            logger.error(f"❌ API: Ticker {ticker} not found: {ve}")
+            validate_ticker_or_raise(ticker)
         except Exception as e:
             logger.error(f"Error fetching shares from FMP for {ticker}: {e}")
         
@@ -634,10 +674,20 @@ def get_info(request: Request, ticker: str = Query(..., description="Stock ticke
             "market_cap": int(market_cap) if market_cap else None,
             "shares_outstanding": int(shares_outstanding) if shares_outstanding else None
         })
-        
+    
+    except ValueError as e:
+        # ValueError raised by FMPService when ticker not found in mocks
+        logger.error(f"❌ API: Ticker {ticker} not found: {e}")
+        validate_ticker_or_raise(ticker)
     except HTTPException:
         raise
     except Exception as e:
+        # Check if it's a ticker not found error from FMP API
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['not found', 'invalid symbol', 'unknown symbol', 'invalid ticker']):
+            logger.error(f"❌ API: Ticker {ticker} not found in FMP API: {e}")
+            validate_ticker_or_raise(ticker)
+        
         raise HTTPException(
             status_code=500,
             detail={
@@ -671,13 +721,8 @@ def get_chart_revenue(
         chart_data = fetch_enhanced_chart_data(ticker.upper(), mode=mode)
         
         if chart_data is None:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error": f"Unable to fetch chart data for ticker {ticker}",
-                    "ticker": ticker.upper()
-                }
-            )
+            logger.error(f"❌ API: Unable to fetch chart data for ticker {ticker}")
+            validate_ticker_or_raise(ticker)
         
         # Stock info removed - use /info endpoint instead
         
@@ -694,10 +739,20 @@ def get_chart_revenue(
             'free_cash_flow': chart_data['free_cash_flow']
             # Stock info fields removed - use /info endpoint instead
         })
-        
+    
+    except ValueError as e:
+        # ValueError raised by FMPService when ticker not found in mocks
+        logger.error(f"❌ API: Ticker {ticker} not found: {e}")
+        validate_ticker_or_raise(ticker)
     except HTTPException:
         raise
     except Exception as e:
+        # Check if it's a ticker not found error from FMP API
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['not found', 'invalid symbol', 'unknown symbol', 'invalid ticker']):
+            logger.error(f"❌ API: Ticker {ticker} not found in FMP API: {e}")
+            validate_ticker_or_raise(ticker)
+        
         raise HTTPException(
             status_code=500,
             detail={
