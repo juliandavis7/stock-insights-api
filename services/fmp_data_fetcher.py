@@ -84,16 +84,28 @@ class FMPDataFetcher:
             logger.error(f"❌ Error fetching quarterly data for {ticker}: {e}")
             return None
     
-    def fetch_forecast_data(self, ticker: str) -> Dict[str, Any]:
-        """Fetch forecast data from FMP analyst estimates."""
+    def fetch_forecast_data(self, ticker: str, cached_estimates: Optional[List[Dict]] = None) -> Dict[str, Any]:
+        """
+        Fetch forecast data from FMP analyst estimates.
+        
+        Args:
+            ticker: Stock ticker symbol
+            cached_estimates: Optional pre-fetched analyst estimates to avoid duplicate API call
+        
+        Returns:
+            Dictionary with earnings_forecast and revenue_forecast
+        """
         forecast_data = {
             'earnings_forecast': None,
             'revenue_forecast': None
         }
         
         try:
-            # Get analyst estimates from FMP (contains both earnings and revenue forecasts)
-            estimates = self.fmp_service.fetch_analyst_estimates(ticker)
+            # Use cached estimates if provided, otherwise fetch from FMP
+            estimates = cached_estimates
+            if estimates is None:
+                estimates = self.fmp_service.fetch_analyst_estimates(ticker)
+            
             if estimates:
                 # FMP analyst estimates contain both EPS and revenue forecasts
                 forecast_data['earnings_forecast'] = estimates
@@ -120,7 +132,10 @@ class FMPDataFetcher:
             return None
     
     def fetch_all_data(self, ticker: str) -> Dict[str, Any]:
-        """Fetch all required data sources in one call."""
+        """
+        Fetch all required data sources in one call.
+        Optimized to avoid duplicate API calls by reusing already-fetched data.
+        """
         
         data_sources = {
             'stock_info': None,
@@ -132,53 +147,54 @@ class FMPDataFetcher:
             'quarterly_data_raw': None
         }
         
-        # Fetch stock info
+        # Fetch stock info (2 API calls: profile + current_year_data)
         try:
             stock_info = self.fetch_stock_info(ticker)
             data_sources['stock_info'] = stock_info
         except Exception as e:
             logger.error(f"Error fetching stock info: {e}")
         
-        # Fetch FMP estimates
+        # Fetch FMP analyst estimates (annual) - 1 API call
         try:
             fmp_estimates = self.fetch_fmp_estimates(ticker)
             data_sources['fmp_estimates'] = fmp_estimates
         except Exception as e:
             logger.error(f"Error fetching FMP estimates: {e}")
         
-        # Fetch quarterly data for TTM calculations
-        try:
-            quarterly_data = self.fetch_quarterly_data(ticker)
-            data_sources['quarterly_data'] = quarterly_data
-        except Exception as e:
-            logger.error(f"Error fetching quarterly data: {e}")
-        
-        # Fetch raw quarterly data for growth calculations
+        # Fetch quarterly income statement - 1 API call
+        # Store raw data first, then convert for quarterly_data
+        quarterly_data_raw = None
         try:
             quarterly_data_raw = self.fmp_service.fetch_quarterly_income_statement(ticker)
             data_sources['quarterly_data_raw'] = quarterly_data_raw
+            
+            # Convert raw data to validated quarterly data (no additional API call)
+            if quarterly_data_raw and self.validator.validate_quarterly_data(quarterly_data_raw):
+                data_sources['quarterly_data'] = self.validator.convert_to_quarterly_data(quarterly_data_raw)
+            else:
+                logger.warning(f"❌ Invalid quarterly data for {ticker}")
         except Exception as e:
-            logger.error(f"Error fetching raw quarterly data: {e}")
+            logger.error(f"Error fetching quarterly data: {e}")
         
-        # Fetch forecast data
+        # Fetch forecast data - REUSE already-fetched fmp_estimates (0 additional API calls)
         try:
-            forecast_data = self.fetch_forecast_data(ticker)
+            forecast_data = self.fetch_forecast_data(ticker, cached_estimates=fmp_estimates)
             data_sources['forecast_data'] = forecast_data
         except Exception as e:
             logger.error(f"Error fetching forecast data: {e}")
         
-        # Fetch income data for growth calculations
+        # Fetch annual income statement - 1 API call
         try:
             income_data = self.fetch_income_data(ticker)
             data_sources['income_data'] = income_data
         except Exception as e:
             logger.error(f"Error fetching income data: {e}")
         
-        # Fetch quarterly estimates for hybrid calculations
+        # Fetch quarterly analyst estimates - 1 API call
         try:
             quarterly_estimates = self.fetch_quarterly_estimates(ticker)
             data_sources['quarterly_estimates'] = quarterly_estimates
         except Exception as e:
             logger.error(f"Error fetching quarterly estimates: {e}")
-        
+                
         return data_sources
