@@ -13,7 +13,7 @@ FMP_API_KEY=your_fmp_api_key_here
 2. Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 3. Run the API:
