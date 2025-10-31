@@ -8,6 +8,7 @@ import logging
 import os
 from datetime import datetime
 from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from models import MetricsResponse, ProjectionRequest, ProjectionResponse, ProjectionBaseDataResponse, ErrorResponse, FinancialStatementResponse, FinancialDataResponse, AnalystEstimateResponse, ComprehensiveFinancialResponse
@@ -38,36 +39,29 @@ limiter = Limiter(
     headers_enabled=True  # Send rate limit info in response headers
 )
 
-# Environment-based rate limit configuration
-ENVIRONMENT = os.getenv('ENVIRONMENT', 'production').lower()
+# Rate limit configuration (same for all environments to protect FMP quota)
+# Based on FMP API usage per endpoint to stay under 300 calls/minute limit
 
-if ENVIRONMENT == 'local':
-    # More relaxed limits for development
-    METRICS_LIMIT = "100/minute"
-    CHARTS_LIMIT = "100/minute"
-    FINANCIALS_LIMIT = "100/minute"
-    PROJECTIONS_LIMIT = "100/minute"
-    INFO_LIMIT = "100/minute"
-    HEALTH_LIMIT = "200/minute"
-else:
-    # Production limits based on FMP API usage
-    # /metrics: 6 FMP calls × 8 = 48 calls/min
-    METRICS_LIMIT = "8/minute"
-    # /charts: 3 FMP calls × 15 = 45 calls/min
-    CHARTS_LIMIT = "15/minute"
-    # /financials: 2 FMP calls × 20 = 40 calls/min
-    FINANCIALS_LIMIT = "20/minute"
-    # /projections: 2 FMP calls × 20 = 40 calls/min
-    PROJECTIONS_LIMIT = "20/minute"
-    # /info: 1 FMP call × 30 = 30 calls/min
-    INFO_LIMIT = "30/minute"
-    # Health check can be more frequent
-    HEALTH_LIMIT = "200/minute"
+# /metrics: 6 FMP calls × 8 = 48 calls/min
+METRICS_LIMIT = "8/minute"
+# /charts: 3 FMP calls × 15 = 45 calls/min
+CHARTS_LIMIT = "15/minute"
+# /financials: 2 FMP calls × 20 = 40 calls/min
+FINANCIALS_LIMIT = "20/minute"
+# /projections: 2 FMP calls × 20 = 40 calls/min
+PROJECTIONS_LIMIT = "20/minute"
+# /info: 1 FMP call × 30 = 30 calls/min
+INFO_LIMIT = "30/minute"
+# Health check can be more frequent (no FMP calls)
+HEALTH_LIMIT = "200/minute"
 
 app = FastAPI()
 
 # Add rate limiter to app state
 app.state.limiter = limiter
+
+# Add SlowAPI middleware for rate limiting
+app.add_middleware(SlowAPIMiddleware)
 
 # Add custom rate limit exception handler
 @app.exception_handler(RateLimitExceeded)
@@ -114,7 +108,7 @@ async def startup_event():
 @app.get("/health")
 @limiter.limit(HEALTH_LIMIT)
 def health_check(request: Request):
-    return {"status": "ok"}
+    return JSONResponse(content={"status": "ok"})
 
 @app.get("/metrics", response_model=MetricsResponse)
 @limiter.limit(METRICS_LIMIT)
