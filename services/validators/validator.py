@@ -2,11 +2,107 @@
 
 import logging
 from typing import Any, List, Dict, Optional
+from datetime import datetime
 import pandas as pd
+from fastapi import HTTPException
 from ..models.metric_models import StockInfo, QuarterlyData
 
 logger = logging.getLogger(__name__)
 
+
+# =============================================================================
+# TICKER VALIDATION
+# =============================================================================
+
+def validate_ticker_or_raise(ticker: str, error_message: Optional[str] = None) -> None:
+    """
+    Validate that a ticker is available. Raises HTTPException 400 if not found.
+    
+    This should be used to wrap service calls that might fail due to invalid tickers.
+    Works for both mock mode (FMP_SERVER=false) and live API mode (FMP_SERVER=true).
+    
+    Args:
+        ticker: Stock ticker symbol
+        error_message: Optional custom error message
+        
+    Raises:
+        HTTPException: 400 error if ticker not found
+    """
+    if error_message:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ticker {ticker} not found. {error_message}"
+        )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ticker {ticker} not found"
+        )
+
+
+# =============================================================================
+# PROJECTION VALIDATION
+# =============================================================================
+
+def validate_projection_inputs(projection_inputs: Dict[int, Dict[str, float]]) -> List[str]:
+    """
+    Validate projection inputs for financial projections.
+    
+    Args:
+        projection_inputs: Dictionary mapping years to projection parameters
+        
+    Returns:
+        List of error messages (empty if valid)
+    """
+    errors = []
+    
+    if not projection_inputs:
+        errors.append("Projection inputs cannot be empty")
+        return errors
+    
+    current_year = datetime.now().year
+    valid_years = set(range(current_year + 1, current_year + 5))
+    
+    for year, projections in projection_inputs.items():
+        year_prefix = f"Year {year}:"
+        
+        if year not in valid_years:
+            errors.append(f"{year_prefix} Year must be between {current_year + 1} and {current_year + 4}")
+            continue
+        
+        required_fields = ['revenue_growth', 'net_income_growth', 'pe_low', 'pe_high']
+        for field in required_fields:
+            if field not in projections:
+                errors.append(f"{year_prefix} Missing required field '{field}'")
+            elif not isinstance(projections[field], (int, float)):
+                errors.append(f"{year_prefix} {field} must be a number")
+        
+        # Validate ranges
+        revenue_growth = projections.get('revenue_growth')
+        if revenue_growth is not None and not (-0.5 <= revenue_growth <= 1.0):
+            errors.append(f"{year_prefix} revenue_growth must be between -0.5 and 1.0")
+        
+        net_income_growth = projections.get('net_income_growth')
+        if net_income_growth is not None and not (-1.0 <= net_income_growth <= 2.0):
+            errors.append(f"{year_prefix} net_income_growth must be between -1.0 and 2.0")
+        
+        pe_low = projections.get('pe_low')
+        if pe_low is not None and not (0 < pe_low <= 100):
+            errors.append(f"{year_prefix} pe_low must be between 0 and 100")
+        
+        pe_high = projections.get('pe_high')
+        if pe_high is not None:
+            if not (0 < pe_high <= 200):
+                errors.append(f"{year_prefix} pe_high must be between 0 and 200")
+            elif pe_low is not None and pe_high < pe_low:
+                errors.append(f"{year_prefix} pe_high must be >= pe_low")
+    
+    return errors
+
+
+# =============================================================================
+# DATA VALIDATOR CLASS
+# =============================================================================
 
 class DataValidator:
     """Validates data for metrics calculations."""
@@ -237,3 +333,4 @@ class DataValidator:
             return float(value)
         except (TypeError, ValueError):
             return None
+

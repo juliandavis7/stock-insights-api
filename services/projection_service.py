@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from services.fmp_service import FMPService
 from services.yfinance_service import YFinanceService
+from services.validators import validate_projection_inputs
 import util
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ class ProjectionService:
         
         try:
             # Validate inputs
-            validation_errors = util.validate_projection_inputs(projection_inputs)
+            validation_errors = validate_projection_inputs(projection_inputs)
             if validation_errors:
                 return {
                     'success': False,
