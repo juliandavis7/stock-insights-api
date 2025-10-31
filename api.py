@@ -468,9 +468,23 @@ def get_financials(ticker: str = Query(..., description="Stock ticker symbol"), 
                 from services.metrics_calculator import MetricsCalculator
                 calculator = MetricsCalculator()
                 
-                # Get shares outstanding for EPS calculation
-                stock_info = yfinance_service.fetch_stock_info(ticker)
-                shares_outstanding = stock_info.get('shares_outstanding') if stock_info else None
+                # Get shares outstanding from FMP quarterly income statement (use diluted shares)
+                shares_outstanding = None
+                if quarterly_data and len(quarterly_data) > 0:
+                    shares_outstanding = quarterly_data[0].get('weightedAverageShsOutDil')
+                    # Fallback to basic shares if diluted not available
+                    if not shares_outstanding:
+                        shares_outstanding = quarterly_data[0].get('weightedAverageShsOut')
+                    
+                    if shares_outstanding:
+                        logger.info(f"Using diluted shares from FMP for {ticker}: {shares_outstanding:,.0f}")
+                
+                # Fallback to yfinance if FMP data not available
+                if not shares_outstanding:
+                    stock_info = yfinance_service.fetch_stock_info(ticker)
+                    shares_outstanding = stock_info.get('shares_outstanding') if stock_info else None
+                    if shares_outstanding:
+                        logger.warning(f"Using yfinance shares for {ticker} (FMP data unavailable): {shares_outstanding:,.0f}")
                 
                 for year in [2025, 2026, 2027]:
                     try:
@@ -552,6 +566,7 @@ def get_info(ticker: str = Query(..., description="Stock ticker symbol"), user: 
     """
     try:
         yfinance_service = YFinanceService()
+        fmp_service = FMPService()
         
         # Get current price
         current_price = yfinance_service.get_current_price(ticker.upper())
@@ -564,8 +579,26 @@ def get_info(ticker: str = Query(..., description="Stock ticker symbol"), user: 
         # Get market cap
         market_cap = yfinance_service.get_market_cap(ticker.upper())
         
-        # Get shares outstanding
-        shares_outstanding = yfinance_service.get_shares_outstanding(ticker.upper())
+        # Get shares outstanding from FMP quarterly income statement (use diluted shares)
+        shares_outstanding = None
+        try:
+            quarterly_data = fmp_service.fetch_quarterly_income_statement(ticker.upper())
+            if quarterly_data and len(quarterly_data) > 0:
+                shares_outstanding = quarterly_data[0].get('weightedAverageShsOutDil')
+                # Fallback to basic shares if diluted not available
+                if not shares_outstanding:
+                    shares_outstanding = quarterly_data[0].get('weightedAverageShsOut')
+                
+                if shares_outstanding:
+                    logger.info(f"Using diluted shares from FMP for {ticker}: {shares_outstanding:,.0f}")
+        except Exception as e:
+            logger.error(f"Error fetching shares from FMP for {ticker}: {e}")
+        
+        # Fallback to yfinance if FMP data not available
+        if not shares_outstanding:
+            shares_outstanding = yfinance_service.get_shares_outstanding(ticker.upper())
+            if shares_outstanding:
+                logger.warning(f"Using yfinance shares for {ticker} (FMP data unavailable): {shares_outstanding:,.0f}")
         
         return {
             "ticker": ticker.upper(),

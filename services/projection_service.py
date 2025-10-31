@@ -150,8 +150,26 @@ class ProjectionService:
         if 'shares_outstanding' in current_data and current_data['shares_outstanding'] > 0:
             return current_data['shares_outstanding']
         
-        # Fetch from YFinance
-        return self.yfinance_service.get_shares_outstanding(ticker)
+        # Fetch from FMP quarterly income statement (use diluted shares)
+        try:
+            quarterly_data = self.fmp_service.fetch_quarterly_income_statement(ticker)
+            if quarterly_data and len(quarterly_data) > 0:
+                shares = quarterly_data[0].get('weightedAverageShsOutDil')
+                # Fallback to basic shares if diluted not available
+                if not shares:
+                    shares = quarterly_data[0].get('weightedAverageShsOut')
+                
+                if shares and shares > 0:
+                    logger.info(f"Using diluted shares from FMP for {ticker}: {shares:,.0f}")
+                    return shares
+        except Exception as e:
+            logger.error(f"Error fetching shares from FMP for {ticker}: {e}")
+        
+        # Final fallback to YFinance
+        shares = self.yfinance_service.get_shares_outstanding(ticker)
+        if shares:
+            logger.warning(f"Using yfinance shares for {ticker} (FMP data unavailable): {shares:,.0f}")
+        return shares
     
     def _calculate_projections(
         self,
@@ -293,12 +311,32 @@ class ProjectionService:
             # Fetch market cap
             market_cap = info.get('marketCap')
             
-            # Fetch shares outstanding
-            shares_outstanding = (
-                info.get('sharesOutstanding') or 
-                info.get('impliedSharesOutstanding') or 
-                info.get('floatShares')
-            )
+            # Fetch shares outstanding from FMP quarterly income statement
+            # Use diluted shares for more accurate EPS calculations
+            shares_outstanding = None
+            try:
+                quarterly_income = self.fmp_service.fetch_quarterly_income_statement(ticker)
+                if quarterly_income and len(quarterly_income) > 0:
+                    # Use most recent quarter's diluted shares
+                    shares_outstanding = quarterly_income[0].get('weightedAverageShsOutDil')
+                    # Fallback to basic shares if diluted not available
+                    if not shares_outstanding:
+                        shares_outstanding = quarterly_income[0].get('weightedAverageShsOut')
+                    
+                    if shares_outstanding:
+                        logger.info(f"Using diluted shares from FMP for {ticker}: {shares_outstanding:,.0f}")
+            except Exception as e:
+                logger.error(f"Error fetching shares from FMP for {ticker}: {e}")
+            
+            # Fallback to yfinance if FMP data not available
+            if not shares_outstanding:
+                shares_outstanding = (
+                    info.get('sharesOutstanding') or 
+                    info.get('impliedSharesOutstanding') or 
+                    info.get('floatShares')
+                )
+                if shares_outstanding:
+                    logger.warning(f"Using yfinance shares for {ticker} (FMP data unavailable): {shares_outstanding:,.0f}")
             
             # Check if we have all required basic data
             if any(x is None for x in [price, market_cap, shares_outstanding]):
