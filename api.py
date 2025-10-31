@@ -7,9 +7,7 @@ import httpx
 import logging
 import os
 from datetime import datetime
-from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from models import MetricsResponse, ProjectionRequest, ProjectionResponse, ProjectionBaseDataResponse, ErrorResponse, FinancialStatementResponse, FinancialDataResponse, AnalystEstimateResponse, ComprehensiveFinancialResponse
 from util import get_metrics, extract_metric_by_year, calculate_financial_projections, validate_projection_inputs, fetch_chart_data, fetch_enhanced_chart_data
@@ -18,6 +16,26 @@ from services.yfinance_service import YFinanceService
 from services.fmp_service import FMPService
 from constants.constants import FMP_API_KEY
 from auth import verify_token
+
+# Import rate limiting configuration
+from rate_limit import (
+    user_limiter,
+    global_limiter,
+    limiter,
+    rate_limit_exceeded_handler,
+    METRICS_USER_LIMIT,
+    METRICS_GLOBAL_LIMIT,
+    CHARTS_USER_LIMIT,
+    CHARTS_GLOBAL_LIMIT,
+    FINANCIALS_USER_LIMIT,
+    FINANCIALS_GLOBAL_LIMIT,
+    PROJECTIONS_USER_LIMIT,
+    PROJECTIONS_GLOBAL_LIMIT,
+    INFO_USER_LIMIT,
+    INFO_GLOBAL_LIMIT,
+    HEALTH_USER_LIMIT,
+    MOCK_USER_LIMIT,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -31,34 +49,12 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Initialize rate limiter with in-memory storage (no Redis needed)
-limiter = Limiter(
-    key_func=get_remote_address,  # Rate limit by IP address
-    default_limits=["100/minute"],  # Default: 100 requests per minute
-    storage_uri="memory://",  # Explicitly use in-memory storage
-    headers_enabled=True  # Send rate limit info in response headers
-)
-
-# Rate limit configuration (same for all environments to protect FMP quota)
-# Based on FMP API usage per endpoint to stay under 300 calls/minute limit
-
-# /metrics: 6 FMP calls × 8 = 48 calls/min
-METRICS_LIMIT = "8/minute"
-# /charts: 3 FMP calls × 15 = 45 calls/min
-CHARTS_LIMIT = "15/minute"
-# /financials: 2 FMP calls × 20 = 40 calls/min
-FINANCIALS_LIMIT = "20/minute"
-# /projections: 2 FMP calls × 20 = 40 calls/min
-PROJECTIONS_LIMIT = "20/minute"
-# /info: 1 FMP call × 30 = 30 calls/min
-INFO_LIMIT = "30/minute"
-# Health check can be more frequent (no FMP calls)
-HEALTH_LIMIT = "200/minute"
-
+# Initialize FastAPI app
 app = FastAPI()
 
-# Add rate limiter to app state
-app.state.limiter = limiter
+# Add both rate limiters to app state (required by slowapi)
+app.state.limiter = user_limiter
+app.state.global_limiter = global_limiter
 
 # Add SlowAPI middleware for rate limiting
 app.add_middleware(SlowAPIMiddleware)
@@ -66,19 +62,7 @@ app.add_middleware(SlowAPIMiddleware)
 # Add custom rate limit exception handler
 @app.exception_handler(RateLimitExceeded)
 async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
-    logger.warning(
-        f"⚠️  Rate limit exceeded for {get_remote_address(request)} "
-        f"on endpoint {request.url.path}"
-    )
-    return JSONResponse(
-        status_code=429,
-        content={
-            "error": "Rate limit exceeded",
-            "detail": str(exc.detail),
-            "message": "Too many requests. Please try again later."
-        },
-        headers={"Retry-After": "60"}
-    )
+    return await rate_limit_exceeded_handler(request, exc)
 
 # Add CORS middleware
 app.add_middleware(
@@ -106,16 +90,17 @@ async def startup_event():
 
 
 @app.get("/health")
-@limiter.limit(HEALTH_LIMIT)
+@user_limiter.limit(HEALTH_USER_LIMIT)
 def health_check(request: Request):
     return JSONResponse(content={"status": "ok"})
 
 @app.get("/metrics", response_model=MetricsResponse)
-@limiter.limit(METRICS_LIMIT)
+@user_limiter.limit(METRICS_USER_LIMIT)
+@global_limiter.limit(METRICS_GLOBAL_LIMIT)
 def metrics(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_token)):
     try:
         data = get_metrics(ticker)
-        return data
+        return JSONResponse(content=data)
     except Exception as e:
         logging.error(f"❌ API: Error in metrics endpoint for {ticker}: {e}")
         import traceback
@@ -123,7 +108,8 @@ def metrics(request: Request, ticker: str = Query(..., description="Stock ticker
         raise HTTPException(status_code=500, detail=f"Error calculating metrics: {str(e)}")
 
 @app.post("/projections", response_model=ProjectionResponse)
-@limiter.limit(PROJECTIONS_LIMIT)
+@user_limiter.limit(PROJECTIONS_USER_LIMIT)
+@global_limiter.limit(PROJECTIONS_GLOBAL_LIMIT)
 async def create_financial_projections(
     request: Request,
     request_body: ProjectionRequest,
@@ -179,7 +165,8 @@ async def create_financial_projections(
                 }
             )
         
-        return ProjectionResponse(**result)
+        response_data = ProjectionResponse(**result)
+        return JSONResponse(content=response_data.dict())
         
     except Exception as e:
         raise HTTPException(
@@ -192,7 +179,8 @@ async def create_financial_projections(
 
 
 @app.get("/projections", response_model=ProjectionBaseDataResponse)
-@limiter.limit(PROJECTIONS_LIMIT)
+@user_limiter.limit(PROJECTIONS_USER_LIMIT)
+@global_limiter.limit(PROJECTIONS_GLOBAL_LIMIT)
 def get_projection_base_data(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_token)):
     """
     Get base data for financial projections including current stock metrics.
@@ -221,7 +209,7 @@ def get_projection_base_data(request: Request, ticker: str = Query(..., descript
         if data.get('net_income') and data.get('revenue') and data['revenue'] > 0:
             net_income_margin = int(round((data['net_income'] / data['revenue']) * 100))
         
-        return ProjectionBaseDataResponse(
+        response_data = ProjectionBaseDataResponse(
             ticker=data['ticker'],
             # Stock info fields removed - use /info endpoint instead
             revenue=data.get('revenue'),
@@ -230,6 +218,7 @@ def get_projection_base_data(request: Request, ticker: str = Query(..., descript
             net_income_margin=net_income_margin,
             data_year=data['data_year']
         )
+        return JSONResponse(content=response_data.dict())
         
     except HTTPException:
         raise
@@ -244,7 +233,7 @@ def get_projection_base_data(request: Request, ticker: str = Query(..., descript
 
 
 @app.get("/mock-income-statement", response_model=List[FinancialStatementResponse])
-@limiter.limit("50/minute")
+@limiter.limit(MOCK_USER_LIMIT)
 def get_financial_statements(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_token)):
     """
     Mock endpoint to return hardcoded financial statement data for development.
@@ -390,14 +379,15 @@ def get_financial_statements(request: Request, ticker: str = Query(..., descript
     # Return AAPL data for any ticker (for development purposes)
     # In a real implementation, you would have different mock data for different tickers
     if ticker_upper in mock_data:
-        return mock_data[ticker_upper]
+        return JSONResponse(content=mock_data[ticker_upper])
     else:
         # Return AAPL data as default for any unknown ticker
-        return mock_data["AAPL"]
+        return JSONResponse(content=mock_data["AAPL"])
 
 
 @app.get("/financials", response_model=ComprehensiveFinancialResponse)
-@limiter.limit(FINANCIALS_LIMIT)
+@user_limiter.limit(FINANCIALS_USER_LIMIT)
+@global_limiter.limit(FINANCIALS_GLOBAL_LIMIT)
 def get_financials(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_token)):
     """
     Get comprehensive financial data including historical data and analyst estimates.
@@ -573,11 +563,12 @@ def get_financials(request: Request, ticker: str = Query(..., description="Stock
                 detail=f"Error calculating estimates: {str(e)}"
             )
         
-        return ComprehensiveFinancialResponse(
+        response_data = ComprehensiveFinancialResponse(
             ticker=ticker.upper(),
             historical=historical_data,
             estimates=estimates_data
         )
+        return JSONResponse(content=response_data.dict())
         
     except HTTPException:
         raise
@@ -589,7 +580,8 @@ def get_financials(request: Request, ticker: str = Query(..., description="Stock
 
 
 @app.get("/info")
-@limiter.limit(INFO_LIMIT)
+@user_limiter.limit(INFO_USER_LIMIT)
+@global_limiter.limit(INFO_GLOBAL_LIMIT)
 def get_info(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_token)):
     """
     Get basic stock information including price, market cap, and shares outstanding.
@@ -636,12 +628,12 @@ def get_info(request: Request, ticker: str = Query(..., description="Stock ticke
             if shares_outstanding:
                 logger.warning(f"Using yfinance shares for {ticker} (FMP data unavailable): {shares_outstanding:,.0f}")
         
-        return {
+        return JSONResponse(content={
             "ticker": ticker.upper(),
             "price": current_price,
             "market_cap": int(market_cap) if market_cap else None,
             "shares_outstanding": int(shares_outstanding) if shares_outstanding else None
-        }
+        })
         
     except HTTPException:
         raise
@@ -656,7 +648,8 @@ def get_info(request: Request, ticker: str = Query(..., description="Stock ticke
 
 
 @app.get("/charts")
-@limiter.limit(CHARTS_LIMIT)
+@user_limiter.limit(CHARTS_USER_LIMIT)
+@global_limiter.limit(CHARTS_GLOBAL_LIMIT)
 def get_chart_revenue(
     request: Request,
     ticker: str = Query(..., description="Stock ticker symbol"),
@@ -689,7 +682,7 @@ def get_chart_revenue(
         # Stock info removed - use /info endpoint instead
         
         # Return the chart data without redundant stock info
-        return {
+        return JSONResponse(content={
             'ticker': chart_data['ticker'],
             'quarters': chart_data['quarters'],
             'revenue': chart_data['revenue'],
@@ -700,7 +693,7 @@ def get_chart_revenue(
             'operating_cash_flow': chart_data['operating_cash_flow'],
             'free_cash_flow': chart_data['free_cash_flow']
             # Stock info fields removed - use /info endpoint instead
-        }
+        })
         
     except HTTPException:
         raise
