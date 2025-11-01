@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 from .models import StockInfo, MetricResult, QuarterlyData
 from constants.constants import *
-import util
+from services import utils as util
 
 logger = logging.getLogger(__name__)
 

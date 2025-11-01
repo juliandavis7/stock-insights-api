@@ -332,3 +332,4 @@ def fetch_enhanced_chart_data(ticker: str, mode: str = 'quarterly', api_key: str
     
     # The refactored fetch_chart_data now already combines all the data we need
     return service.fetch_chart_data(ticker, mode=mode)
+
