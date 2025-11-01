@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from models import ProjectionRequest, ProjectionResponse, ProjectionBaseDataResponse
 from services.utils import calculate_financial_projections
-from core.auth import verify_token
+from core.auth import verify_access
 from services.validators import validate_ticker_or_raise, validate_projection_inputs
 from services.projection_service import ProjectionService
 from constants.constants import FMP_API_KEY
@@ -23,7 +23,7 @@ async def create_financial_projections(
     request: Request,
     request_body: ProjectionRequest,
     ticker: str = Query(..., description="Stock ticker symbol (e.g., AAPL)", regex="^[A-Z]{1,5}$"),
-    user: Dict = Depends(verify_token)
+    user: Dict = Depends(verify_access)
 ):
     """
     Calculate financial projections for a stock based on user assumptions.
@@ -102,7 +102,7 @@ async def create_financial_projections(
 @router.get("/projections", response_model=ProjectionBaseDataResponse)
 @user_limiter.limit(PROJECTIONS_USER_LIMIT)
 @global_limiter.limit(PROJECTIONS_GLOBAL_LIMIT)
-def get_projection_base_data(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_token)):
+def get_projection_base_data(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
     """
     Get base data for financial projections including current stock metrics.
     

@@ -4,7 +4,7 @@ from typing import Dict
 from fastapi import APIRouter, Query, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 
-from core.auth import verify_token
+from core.auth import verify_access
 from services.validators import validate_ticker_or_raise
 from services.utils import fetch_enhanced_chart_data
 from core.rate_limit import user_limiter, global_limiter, CHARTS_USER_LIMIT, CHARTS_GLOBAL_LIMIT
@@ -20,7 +20,7 @@ def get_chart_revenue(
     request: Request,
     ticker: str = Query(..., description="Stock ticker symbol"),
     mode: str = Query("quarterly", description="Mode: 'quarterly' for quarterly data or 'ttm' for trailing twelve months"),
-    user: Dict = Depends(verify_token)
+    user: Dict = Depends(verify_access)
 ):
     """
     Get quarterly revenue and EPS chart data for a ticker, including current price and market cap.
