@@ -3,7 +3,7 @@ from fastapi import FastAPI
 
 from core.config import setup_logging
 from core.middleware import setup_middleware
-from routers import health, metrics, projections, financials, info, charts, users
+from routers import health, metrics, projections, financials, info, charts, users, webhooks
 
 
 def create_app() -> FastAPI:
@@ -30,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(info.router, tags=["info"])
     app.include_router(charts.router, tags=["charts"])
     app.include_router(users.router, tags=["users"])
+    app.include_router(webhooks.router, tags=["webhooks"])
     
     return app
 

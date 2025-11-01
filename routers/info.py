@@ -4,11 +4,11 @@ from typing import Dict
 from fastapi import APIRouter, Query, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 
-from auth import verify_token
+from core.auth import verify_token
 from services.validators import validate_ticker_or_raise
 from services.yfinance_service import YFinanceService
 from services.fmp_service import FMPService
-from rate_limit import user_limiter, global_limiter, INFO_USER_LIMIT, INFO_GLOBAL_LIMIT
+from core.rate_limit import user_limiter, global_limiter, INFO_USER_LIMIT, INFO_GLOBAL_LIMIT
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from rate_limit import user_limiter, HEALTH_USER_LIMIT
+from core.rate_limit import user_limiter, HEALTH_USER_LIMIT
 
 router = APIRouter()
 

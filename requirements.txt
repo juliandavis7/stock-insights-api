@@ -11,3 +11,4 @@ PyJWT[crypto]>=2.8.0
 cryptography>=41.0.0
 slowapi>=0.1.9
 supabase>=2.0.0
+svix>=1.0.0

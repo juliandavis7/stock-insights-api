@@ -169,4 +169,34 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Error fetching user {clerk_user_id}: {str(e)}")
             raise
+    
+    def delete_user(self, clerk_user_id: str) -> bool:
+        """
+        Delete a user by Clerk user ID.
+        
+        Args:
+            clerk_user_id: Clerk user ID from JWT 'sub' field
+            
+        Returns:
+            bool: True if user was deleted, False if user not found
+            
+        Raises:
+            Exception: If deletion fails
+        """
+        try:
+            # Check if user exists
+            user = self.get_user_by_clerk_id(clerk_user_id)
+            if not user:
+                logger.warning(f"User {clerk_user_id} not found for deletion")
+                return False
+            
+            # Delete user
+            response = self.client.table('users').delete().eq('clerk_user_id', clerk_user_id).execute()
+            
+            logger.info(f"✅ Successfully deleted user: {clerk_user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting user {clerk_user_id}: {str(e)}")
+            raise
 
