@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from models import MetricsResponse
 from services.utils import get_metrics
-from core.auth import verify_token
+from core.auth import verify_access
 from services.validators import validate_ticker_or_raise
 from core.rate_limit import user_limiter, global_limiter, METRICS_USER_LIMIT, METRICS_GLOBAL_LIMIT
 
@@ -17,7 +17,7 @@ router = APIRouter()
 @router.get("/metrics", response_model=MetricsResponse)
 @user_limiter.limit(METRICS_USER_LIMIT)
 @global_limiter.limit(METRICS_GLOBAL_LIMIT)
-def metrics(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_token)):
+def metrics(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
     try:
         data = get_metrics(ticker)
         return JSONResponse(content=data)

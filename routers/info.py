@@ -4,7 +4,7 @@ from typing import Dict
 from fastapi import APIRouter, Query, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 
-from core.auth import verify_token
+from core.auth import verify_access
 from services.validators import validate_ticker_or_raise
 from services.yfinance_service import YFinanceService
 from services.fmp_service import FMPService
@@ -17,7 +17,7 @@ router = APIRouter()
 @router.get("/info")
 @user_limiter.limit(INFO_USER_LIMIT)
 @global_limiter.limit(INFO_GLOBAL_LIMIT)
-def get_info(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_token)):
+def get_info(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
     """
     Get basic stock information including price, market cap, and shares outstanding.
     

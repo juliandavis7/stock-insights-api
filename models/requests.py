@@ -1,13 +1,21 @@
 """Request models for the FastAPI application"""
 
 from pydantic import BaseModel, Field, validator
-from typing import Dict, Optional
+from typing import Dict, Optional, Literal
 from datetime import datetime
 
 
 class CreateUserRequest(BaseModel):
     """Request body for creating a user."""
     pass  # No body needed - we get everything from JWT
+
+
+class UpdateSubscriptionStatusRequest(BaseModel):
+    """Request body for updating a user's subscription status."""
+    subscription_status: Literal['trial', 'active', 'expired'] = Field(
+        ..., 
+        description="New subscription status: 'trial', 'active', or 'expired'"
+    )
 
 
 class YearProjection(BaseModel):

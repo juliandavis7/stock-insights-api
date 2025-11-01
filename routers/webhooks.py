@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, HTTPException, Header
 from fastapi.responses import JSONResponse
 from svix.webhooks import Webhook, WebhookVerificationError
 
-from services.supabase_service import SupabaseService
+from services.supabase_service import supabase_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -25,7 +25,9 @@ async def clerk_webhook(
     """
     Handle Clerk webhook events.
     
-    Verifies webhook signature and processes user.created events to sync users to database.
+    Verifies webhook signature and processes:
+    - user.created: Sync new users to database
+    - user.deleted: Remove users from database
     
     Args:
         request: FastAPI request object
@@ -123,29 +125,10 @@ async def clerk_webhook(
             logger.info(f"👤 Creating user: {clerk_user_id} ({primary_email})")
             
             # Create user in database using SupabaseService
-            supabase_service = SupabaseService()
-            user = await supabase_service.get_or_create_user(
+            user = supabase_service.get_or_create_user(
                 clerk_user_id=clerk_user_id,
                 email=primary_email
             )
-            
-            # Optionally update first/last name if provided
-            if first_name or last_name:
-                try:
-                    update_data = {}
-                    if first_name:
-                        update_data['first_name'] = first_name
-                    if last_name:
-                        update_data['last_name'] = last_name
-                    
-                    supabase_service.client.table('users').update(update_data).eq(
-                        'clerk_user_id', clerk_user_id
-                    ).execute()
-                    
-                    logger.info(f"✅ Updated user name: {first_name} {last_name}")
-                except Exception as e:
-                    logger.warning(f"⚠️  Could not update user name: {e}")
-                    # Don't fail the webhook if name update fails
             
             logger.info(f"✅ Successfully created/updated user {clerk_user_id} in database")
             
@@ -168,6 +151,59 @@ async def clerk_webhook(
             raise HTTPException(
                 status_code=500,
                 detail=f"Error creating user: {str(e)}"
+            )
+    
+    # Handle user.deleted event
+    elif event_type == 'user.deleted':
+        try:
+            # Extract user ID from webhook payload
+            clerk_user_id = event_data.get('id')
+            
+            # Validate required data
+            if not clerk_user_id:
+                logger.error("❌ Missing Clerk user ID in webhook payload")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Missing user ID in webhook payload"
+                )
+            
+            logger.info(f"🗑️  Deleting user: {clerk_user_id}")
+            
+            # Delete user from database using SupabaseService
+            deleted = supabase_service.delete_user(clerk_user_id)
+            
+            if not deleted:
+                logger.warning(f"⚠️  User {clerk_user_id} not found in database")
+                # Return success anyway - user might have been manually deleted
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "success": True,
+                        "message": "User not found in database",
+                        "user_id": clerk_user_id
+                    }
+                )
+            
+            logger.info(f"✅ Successfully deleted user {clerk_user_id} from database")
+            
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "message": "User deleted successfully",
+                    "user_id": clerk_user_id
+                }
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ Error deleting user from webhook: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error deleting user: {str(e)}"
             )
     
     # Handle other event types (log but don't process)
