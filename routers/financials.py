@@ -6,11 +6,11 @@ from fastapi import APIRouter, Query, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 
 from models import FinancialStatementResponse, ComprehensiveFinancialResponse, FinancialDataResponse, AnalystEstimateResponse
-from auth import verify_token
+from core.auth import verify_token
 from services.validators import validate_ticker_or_raise
 from services.yfinance_service import YFinanceService
 from services.fmp_service import FMPService
-from rate_limit import user_limiter, global_limiter, limiter, FINANCIALS_USER_LIMIT, FINANCIALS_GLOBAL_LIMIT, MOCK_USER_LIMIT
+from core.rate_limit import user_limiter, global_limiter, limiter, FINANCIALS_USER_LIMIT, FINANCIALS_GLOBAL_LIMIT, MOCK_USER_LIMIT
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

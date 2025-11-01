@@ -4,7 +4,7 @@ import yfinance as yf
 import pandas as pd
 import logging
 from typing import Dict, Any, Optional
-import util
+from services import utils as util
 
 logger = logging.getLogger(__name__)
 

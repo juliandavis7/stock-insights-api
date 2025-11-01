@@ -5,10 +5,10 @@ from fastapi import APIRouter, Query, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 
 from models import MetricsResponse
-from util import get_metrics
-from auth import verify_token
+from services.utils import get_metrics
+from core.auth import verify_token
 from services.validators import validate_ticker_or_raise
-from rate_limit import user_limiter, global_limiter, METRICS_USER_LIMIT, METRICS_GLOBAL_LIMIT
+from core.rate_limit import user_limiter, global_limiter, METRICS_USER_LIMIT, METRICS_GLOBAL_LIMIT
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

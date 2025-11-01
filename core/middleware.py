@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
 
-from rate_limit import user_limiter, global_limiter, rate_limit_exceeded_handler
+from core.rate_limit import user_limiter, global_limiter, rate_limit_exceeded_handler
 
 
 def setup_middleware(app: FastAPI):

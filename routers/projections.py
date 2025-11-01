@@ -5,12 +5,12 @@ from fastapi import APIRouter, Query, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 
 from models import ProjectionRequest, ProjectionResponse, ProjectionBaseDataResponse
-from util import calculate_financial_projections
-from auth import verify_token
+from services.utils import calculate_financial_projections
+from core.auth import verify_token
 from services.validators import validate_ticker_or_raise, validate_projection_inputs
 from services.projection_service import ProjectionService
 from constants.constants import FMP_API_KEY
-from rate_limit import user_limiter, global_limiter, PROJECTIONS_USER_LIMIT, PROJECTIONS_GLOBAL_LIMIT
+from core.rate_limit import user_limiter, global_limiter, PROJECTIONS_USER_LIMIT, PROJECTIONS_GLOBAL_LIMIT
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

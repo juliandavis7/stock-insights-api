@@ -4,10 +4,10 @@ from typing import Dict
 from fastapi import APIRouter, Query, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 
-from auth import verify_token
+from core.auth import verify_token
 from services.validators import validate_ticker_or_raise
-from util import fetch_enhanced_chart_data
-from rate_limit import user_limiter, global_limiter, CHARTS_USER_LIMIT, CHARTS_GLOBAL_LIMIT
+from services.utils import fetch_enhanced_chart_data
+from core.rate_limit import user_limiter, global_limiter, CHARTS_USER_LIMIT, CHARTS_GLOBAL_LIMIT
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
