@@ -24,7 +24,7 @@ class SupabaseService:
         self.client: Client = create_client(supabase_url, supabase_key)
         logger.info("✅ Supabase service initialized")
     
-    async def get_or_create_user(self, clerk_user_id: str, email: Optional[str] = None) -> Dict:
+    def get_or_create_user(self, clerk_user_id: str, email: Optional[str] = None) -> Dict:
         """
         Get existing user or create new user with trial.
         
@@ -48,8 +48,7 @@ class SupabaseService:
             new_user = {
                 'clerk_user_id': clerk_user_id,
                 'email': email,
-                'subscription_status': 'trial',
-                'is_trial_active': True
+                'subscription_status': 'trial'
             }
             
             response = self.client.table('users').insert(new_user).execute()
@@ -61,7 +60,7 @@ class SupabaseService:
             logger.error(f"Error in get_or_create_user: {str(e)}")
             raise
     
-    async def check_trial_status(self, clerk_user_id: str) -> Tuple[bool, Optional[str]]:
+    def check_trial_status(self, clerk_user_id: str) -> Tuple[bool, Optional[str]]:
         """
         Check if user's trial is still active.
         
@@ -84,16 +83,12 @@ class SupabaseService:
                 return False, "Trial has ended. Please subscribe to continue."
             
             # Check trial expiration
-            if not user['is_trial_active']:
-                return False, "Trial has ended. Please subscribe to continue."
-            
             trial_ends_at = datetime.fromisoformat(user['trial_ends_at'].replace('Z', '+00:00'))
             now = datetime.now(timezone.utc)
             
             if now > trial_ends_at:
                 # Trial expired - update user
                 self.client.table('users').update({
-                    'is_trial_active': False,
                     'subscription_status': 'expired'
                 }).eq('clerk_user_id', clerk_user_id).execute()
                 
@@ -105,7 +100,7 @@ class SupabaseService:
             logger.error(f"Error checking trial status: {str(e)}")
             return False, f"Error checking trial status: {str(e)}"
     
-    async def log_api_usage(self, clerk_user_id: str, endpoint: str, ticker: Optional[str] = None, 
+    def log_api_usage(self, clerk_user_id: str, endpoint: str, ticker: Optional[str] = None, 
                            fmp_calls: int = 0, status_code: int = 200):
         """Log API usage for analytics and potential rate limiting."""
         try:
@@ -199,4 +194,47 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Error deleting user {clerk_user_id}: {str(e)}")
             raise
+    
+    def update_subscription_status(self, clerk_user_id: str, subscription_status: str) -> Optional[Dict]:
+        """
+        Update a user's subscription status.
+        
+        Args:
+            clerk_user_id: Clerk user ID from JWT 'sub' field
+            subscription_status: New subscription status ('trial', 'active', or 'expired')
+            
+        Returns:
+            Updated user data or None if user not found
+            
+        Raises:
+            Exception: If update fails
+        """
+        try:
+            # Check if user exists
+            user = self.get_user_by_clerk_id(clerk_user_id)
+            if not user:
+                logger.warning(f"User {clerk_user_id} not found for update")
+                return None
+            
+            # Prepare update data
+            update_data = {
+                'subscription_status': subscription_status
+            }
+            
+            # Update user
+            response = self.client.table('users').update(update_data).eq('clerk_user_id', clerk_user_id).execute()
+            
+            if response.data and len(response.data) > 0:
+                updated_user = response.data[0]
+                logger.info(f"✅ Successfully updated subscription status for user {clerk_user_id} to '{subscription_status}'")
+                return updated_user
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error updating subscription status for user {clerk_user_id}: {str(e)}")
+            raise
 
+
+# Create singleton instance
+supabase_service = SupabaseService()

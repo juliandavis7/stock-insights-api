@@ -1,10 +1,76 @@
 # Authentication Reference
 
-Complete authentication implementation using Clerk JWT tokens with JWKS validation.
+Complete authentication implementation using Clerk JWT tokens with JWKS validation and subscription-based access control.
 
 ## Overview
 
-The API uses Clerk for authentication with JWT tokens validated using JWKS public keys. Local development mode can bypass authentication for testing.
+The API uses Clerk for authentication with JWT tokens validated using JWKS public keys. Additionally, all data endpoints enforce subscription status checks to ensure users have active trials or paid subscriptions. 
+
+**Local Development Mode**: Tokens are still required to extract user IDs, but expired tokens are accepted (signature and expiration are not verified). Subscription checks are bypassed.
+
+## Access Control Flow
+
+1. **verify_token()** - Validates JWT authentication
+2. **verify_user_access()** - Checks subscription status in Supabase
+3. **verify_access()** - Complete dependency that chains both checks
+
+## verify_access() Function (Recommended)
+
+**Use this dependency on all protected data endpoints.** It provides complete access control:
+
+```python
+async def verify_access(user: Dict = Depends(verify_token)) -> Dict:
+    """
+    Complete access verification: authentication + subscription check.
+    
+    This is the main dependency that should be used on protected endpoints
+    that require both authentication and an active subscription.
+    
+    Usage:
+        @app.get("/protected")
+        def protected_route(user: Dict = Depends(verify_access)):
+            # user contains Supabase user data with subscription info
+            pass
+    
+    Args:
+        user: User payload from verify_token() dependency
+        
+    Returns:
+        Dict: User data with subscription information
+        
+    Raises:
+        HTTPException: 401 if authentication fails
+        HTTPException: 403 if subscription is expired
+    """
+    return await verify_user_access(user)
+```
+
+## verify_user_access() Function
+
+Checks subscription status after authentication:
+
+```python
+async def verify_user_access(user: Dict) -> Dict:
+    """
+    Verify user has active subscription or trial access.
+    
+    Checks the user's subscription status in Supabase:
+    - 'trial' or 'active' → allow access
+    - 'expired' or other → raise 403 error
+    
+    Args:
+        user: Decoded JWT payload from verify_token()
+    
+    Returns:
+        Dict: User data from Supabase with subscription info
+        
+    Raises:
+        HTTPException: 403 if subscription is expired
+        HTTPException: 500 if unable to check subscription status
+    """
+    # Implementation checks subscription_status in Supabase
+    # Returns 403 with message: "Your trial has expired. Please upgrade to continue."
+```
 
 ## verify_token() Function
 
@@ -14,34 +80,26 @@ Complete implementation from `auth.py`:
 async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Dict:
     """
     Validates JWT token and returns user payload.
-    In local development mode (ENVIRONMENT=local), authentication is bypassed.
+    In local development mode (ENVIRONMENT=local), token is required to extract user ID,
+    but expired tokens are accepted.
     
     This dependency should be added to protected endpoints:
         @app.get("/protected")
         def protected_route(user: Dict = Depends(verify_token)):
-            # user contains decoded JWT payload (or mock user in local mode)
+            # user contains decoded JWT payload
             pass
     
     Args:
-        credentials: HTTP Bearer token credentials (optional in local mode)
+        credentials: HTTP Bearer token credentials
         
     Returns:
         Dict: Decoded token payload with user information
         
     Raises:
-        HTTPException: 401 if token is invalid or expired (only in non-local environments)
+        HTTPException: 401 if token is missing or invalid
+        HTTPException: 401 if token is expired (only in non-local environments)
     """
-    # Bypass authentication in local development
-    if ENVIRONMENT == 'local':
-        logging.info("🔓 Local development mode: Bypassing authentication")
-        return {
-            'sub': 'local-dev-user',
-            'email': 'dev@localhost',
-            'environment': 'local',
-            'note': 'Mock user for local development'
-        }
-    
-    # Production/staging: require valid token
+    # Require token even in local development
     if not credentials:
         logging.warning("Authentication failed: No credentials provided")
         raise HTTPException(
@@ -52,6 +110,27 @@ async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Dep
     
     token = credentials.credentials
     
+    # Local development mode: Accept expired tokens, just decode them
+    if ENVIRONMENT == 'local':
+        try:
+            # Decode without verification to get user ID
+            payload = jwt.decode(token, options={
+                "verify_signature": False,
+                "verify_exp": False,
+                "verify_iat": False,
+                "verify_iss": False,
+            })
+            logging.info(f"🔓 Local development mode: Decoded token for user {payload.get('sub')} (signature/expiration not verified)")
+            return payload
+        except jwt.DecodeError as e:
+            logging.error(f"Token decode error in local mode: {e}")
+            raise HTTPException(
+                status_code=401,
+                detail=f"Invalid token format: {str(e)}",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    
+    # Production/staging: require fully valid token
     is_valid, payload, error = auth_validator.validate_token(token)
     
     if not is_valid:

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 
 from models import FinancialStatementResponse, ComprehensiveFinancialResponse, FinancialDataResponse, AnalystEstimateResponse
-from core.auth import verify_token
+from core.auth import verify_access
 from services.validators import validate_ticker_or_raise
 from services.yfinance_service import YFinanceService
 from services.fmp_service import FMPService
@@ -18,7 +18,7 @@ router = APIRouter()
 
 @router.get("/mock-income-statement", response_model=List[FinancialStatementResponse])
 @limiter.limit(MOCK_USER_LIMIT)
-def get_financial_statements(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_token)):
+def get_financial_statements(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
     """
     Mock endpoint to return hardcoded financial statement data for development.
     Returns 3 years of mock data (2024, 2023, 2022) similar to FMP API response.
@@ -172,7 +172,7 @@ def get_financial_statements(request: Request, ticker: str = Query(..., descript
 @router.get("/financials", response_model=ComprehensiveFinancialResponse)
 @user_limiter.limit(FINANCIALS_USER_LIMIT)
 @global_limiter.limit(FINANCIALS_GLOBAL_LIMIT)
-def get_financials(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_token)):
+def get_financials(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
     """
     Get comprehensive financial data including historical data and analyst estimates.
     Returns structured financial data with key metrics for each year plus future estimates.
