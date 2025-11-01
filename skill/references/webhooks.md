@@ -45,8 +45,8 @@ In the Clerk Dashboard:
 3. Enter your endpoint URL: `https://your-api-domain.com/webhooks/clerk`
 4. Select events to subscribe to:
    - ✅ `user.created` (required)
+   - ✅ `user.deleted` (required)
    - ✅ `user.updated` (optional, not yet implemented)
-   - ✅ `user.deleted` (optional, not yet implemented)
 5. Save and copy the webhook secret
 
 ## How It Works
@@ -89,7 +89,6 @@ The webhook creates users in the `users` table with:
 - `first_name`: User's first name (optional)
 - `last_name`: User's last name (optional)
 - `subscription_status`: Set to 'trial' by default
-- `is_trial_active`: Set to `true` by default
 - `trial_ends_at`: Automatically set (typically 7-14 days from creation)
 
 ## Event Types
@@ -128,10 +127,43 @@ Triggered when a new user signs up in Clerk.
 }
 ```
 
+#### `user.deleted`
+Triggered when a user is deleted from Clerk.
+
+**Webhook Payload Example:**
+```json
+{
+  "type": "user.deleted",
+  "data": {
+    "id": "user_2abc123xyz",
+    "deleted": true
+  }
+}
+```
+
+**Response (Success - User Found):**
+```json
+{
+  "success": true,
+  "message": "User deleted successfully",
+  "user_id": "user_2abc123xyz"
+}
+```
+
+**Response (Success - User Not Found):**
+```json
+{
+  "success": true,
+  "message": "User not found in database",
+  "user_id": "user_2abc123xyz"
+}
+```
+
+Note: The endpoint returns success even if the user is not found in the database. This ensures idempotency for webhook retries.
+
 ### Future Events (Not Yet Implemented)
 
 - `user.updated`: Update user profile when changed in Clerk
-- `user.deleted`: Handle user deletion/cleanup
 - `session.created`: Track user sessions
 - `session.ended`: Log user logout events
 
@@ -259,8 +291,12 @@ The webhook endpoint logs all events:
 - `📨 Received Clerk webhook: <event_type>` - Webhook received and verified
 - `👤 Creating user: <clerk_id> (<email>)` - Starting user creation
 - `✅ Successfully created/updated user` - User created successfully
+- `🗑️ Deleting user: <clerk_id>` - Starting user deletion
+- `✅ Successfully deleted user <clerk_id> from database` - User deleted successfully
+- `⚠️ User <clerk_id> not found in database` - User deletion requested but user not found
 - `❌ Webhook verification failed` - Signature verification failed
 - `❌ Error creating user from webhook` - Database error during creation
+- `❌ Error deleting user from webhook` - Database error during deletion
 - `ℹ️ Received unhandled event type` - Event type not yet implemented
 
 ## Security Best Practices
@@ -295,6 +331,8 @@ The webhook endpoint logs all events:
 
 ## Integration with Frontend
 
+### User Sign-Up Flow
+
 When a user signs up in your React app:
 
 1. User completes Clerk sign-up flow
@@ -305,4 +343,15 @@ When a user signs up in your React app:
 6. Frontend can verify user exists via `/users` endpoint
 
 This ensures seamless user creation without requiring the frontend to make additional API calls.
+
+### User Deletion Flow
+
+When a user is deleted from Clerk:
+
+1. User is deleted from Clerk Dashboard (or via Clerk API)
+2. Clerk sends `user.deleted` webhook to your API
+3. API deletes user from Supabase database
+4. All user data is removed (user record and related data like API usage logs)
+
+This ensures automatic cleanup and data synchronization between Clerk and your database.
 
