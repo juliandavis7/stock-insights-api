@@ -5,6 +5,11 @@ from typing import Dict, Optional
 from datetime import datetime
 
 
+class CreateUserRequest(BaseModel):
+    """Request body for creating a user."""
+    pass  # No body needed - we get everything from JWT
+
+
 class YearProjection(BaseModel):
     """Model for a single year's projection inputs"""
     revenue_growth: float = Field(..., ge=-0.5, le=1.0, description="Revenue growth rate (decimal, e.g., 0.15 for 15%)")

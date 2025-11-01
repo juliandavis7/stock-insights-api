@@ -8,7 +8,7 @@ from datetime import datetime
 from services.fmp_service import FMPService
 from services.yfinance_service import YFinanceService
 from services.validators import validate_projection_inputs
-import util
+from services import utils as util
 
 logger = logging.getLogger(__name__)
 
