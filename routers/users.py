@@ -60,6 +60,78 @@ def get_users(
         )
 
 
+@router.get("/users/me")
+@user_limiter.limit(HEALTH_USER_LIMIT)
+def get_current_user(
+    request: Request,
+    user: Dict = Depends(verify_token)
+):
+    """
+    Get current authenticated user's data from Supabase.
+    
+    This endpoint returns the subscription status and other details
+    for the currently authenticated user (from JWT token).
+    
+    Returns:
+        User data with subscription status
+        
+    Raises:
+        404: If user not found in database
+        500: If retrieval fails
+    """
+    try:
+        # Extract user ID from JWT token
+        user_id = user.get('sub')
+        
+        if not user_id:
+            logger.error("❌ API: User ID not found in token")
+            raise HTTPException(status_code=400, detail="User ID not found in token")
+        
+        logger.info(f"📋 API: Fetching current user data: {user_id}")
+        
+        # Get the user from Supabase
+        user_data = supabase_service.get_user_by_clerk_id(user_id)
+        
+        if not user_data:
+            logger.warning(f"⚠️  API: User {user_id} not found in database")
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "success": False,
+                    "error": "User not found. Please ensure you're registered in the system."
+                }
+            )
+        
+        logger.info(f"✅ API: Successfully retrieved current user data for {user_id}")
+        
+        return JSONResponse(content={
+            'success': True,
+            'user': user_data
+        })
+    
+    except HTTPException:
+        raise
+    except ValueError as e:
+        # Handle missing Supabase credentials
+        logger.error(f"❌ API: Supabase configuration error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "success": False,
+                "error": "Supabase is not configured properly. Please check your environment variables."
+            }
+        )
+    except Exception as e:
+        logger.error(f"❌ API: Error fetching current user: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "success": False,
+                "error": f"Failed to fetch user data: {str(e)}"
+            }
+        )
+
+
 @router.get("/users/{clerk_user_id}")
 @user_limiter.limit(HEALTH_USER_LIMIT)  # Reusing health endpoint rate limits
 def get_user(

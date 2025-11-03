@@ -165,6 +165,26 @@ class SupabaseService:
             logger.error(f"Error fetching user {clerk_user_id}: {str(e)}")
             raise
     
+    def get_user_by_email(self, email: str) -> Optional[Dict]:
+        """
+        Get a single user by email address.
+        
+        Args:
+            email: User's email address
+            
+        Returns:
+            User data or None if not found
+        """
+        try:
+            response = self.client.table('users').select('*').eq('email', email).execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching user by email {email}: {str(e)}")
+            raise
+    
     def delete_user(self, clerk_user_id: str) -> bool:
         """
         Delete a user by Clerk user ID.

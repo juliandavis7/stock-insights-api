@@ -123,3 +123,17 @@ class ErrorResponse(BaseModel):
     success: bool = False
     error: str
     ticker: Optional[str] = None
+
+
+class CheckoutResponse(BaseModel):
+    """Response model for checkout creation."""
+    checkout_url: str
+    checkout_id: str
+    status: str
+
+
+class SubscriptionsResponse(BaseModel):
+    """Response model for user subscriptions."""
+    subscriptions: List[Dict[str, Any]]
+    count: int
+    has_active_subscription: bool
