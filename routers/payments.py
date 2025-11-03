@@ -66,7 +66,7 @@ async def create_checkout(
         
         # Set default URLs if not provided
         frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
-        success_url = request_body.success_url or f"{frontend_url}/search?checkout=success"
+        success_url = request_body.success_url or f"{frontend_url}/subscription?checkout=success"
         cancel_url = request_body.cancel_url or f"{frontend_url}/pricing?checkout=cancelled"
         
         logger.info(f"💳 API: Creating checkout for user {user_id} ({user_email})")
