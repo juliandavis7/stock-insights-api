@@ -162,13 +162,13 @@ auth_validator = ClerkAuthValidator()
 async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Dict:
     """
     Validates JWT token and returns user payload.
-    In local development mode (ENVIRONMENT=local), token is required to extract user ID,
+    In local development mode (ENVIRONMENT=dev), token is required to extract user ID,
     but expired tokens are accepted.
     
     This dependency should be added to protected endpoints:
         @app.get("/protected")
         def protected_route(user: Dict = Depends(verify_token)):
-            # user contains decoded JWT payload (or mock user in local mode)
+            # user contains decoded JWT payload (or mock user in dev mode)
             pass
     
     Args:
@@ -179,7 +179,7 @@ async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Dep
         
     Raises:
         HTTPException: 401 if token is missing or invalid
-        HTTPException: 401 if token is expired (only in non-local environments)
+        HTTPException: 401 if token is expired (only in production environments)
     """
     # Require token even in local development
     if not credentials:
@@ -193,7 +193,7 @@ async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Dep
     token = credentials.credentials
     
     # Local development mode: Accept expired tokens, just decode them
-    if ENVIRONMENT == 'local':
+    if ENVIRONMENT == 'dev':
         try:
             # Decode without verification to get user ID
             payload = jwt.decode(token, options={
@@ -202,10 +202,10 @@ async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Dep
                 "verify_iat": False,
                 "verify_iss": False,
             })
-            logging.info(f"🔓 Local development mode: Decoded token for user {payload.get('sub')} (signature/expiration not verified)")
+            logging.info(f"🔓 Dev mode: Decoded token for user {payload.get('sub')} (signature/expiration not verified)")
             return payload
         except jwt.DecodeError as e:
-            logging.error(f"Token decode error in local mode: {e}")
+            logging.error(f"Token decode error in dev mode: {e}")
             raise HTTPException(
                 status_code=401,
                 detail=f"Invalid token format: {str(e)}",

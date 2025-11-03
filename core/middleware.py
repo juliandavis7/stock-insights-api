@@ -43,8 +43,8 @@ def setup_middleware(app: FastAPI):
         environment = os.getenv('ENVIRONMENT', 'production').lower()
         logging.info("🚀 Stock Insights API started with enhanced logging")
         logging.info("📊 Debug logs will be visible for current year growth calculations")
-        if environment == 'local':
-            logging.warning("⚠️  Running in LOCAL mode - Authentication is BYPASSED")
+        if environment == 'dev':
+            logging.warning("⚠️  Running in DEV mode")
         else:
-            logging.info(f"🔒 Running in {environment.upper()} mode - Authentication is REQUIRED")
+            logging.info(f"🔒 Running in {environment.upper()} mode")
 

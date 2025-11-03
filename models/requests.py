@@ -18,6 +18,13 @@ class UpdateSubscriptionStatusRequest(BaseModel):
     )
 
 
+class CreateCheckoutRequest(BaseModel):
+    """Request model for creating a Polar checkout session."""
+    product_id: str = Field(..., description="Polar product ID from dashboard")
+    success_url: Optional[str] = Field(None, description="URL to redirect after successful payment")
+    cancel_url: Optional[str] = Field(None, description="URL to redirect if user cancels")
+
+
 class YearProjection(BaseModel):
     """Model for a single year's projection inputs"""
     revenue_growth: float = Field(..., ge=-0.5, le=1.0, description="Revenue growth rate (decimal, e.g., 0.15 for 15%)")
