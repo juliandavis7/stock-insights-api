@@ -5,11 +5,13 @@ from .yfinance_service import YFinanceService
 from .metrics_service import MetricsService
 from .projection_service import ProjectionService
 from .supabase_service import SupabaseService
+from .polar_service import PolarService
 
 __all__ = [
     "FMPService",
     "YFinanceService", 
     "MetricsService",
     "ProjectionService",
-    "SupabaseService"
+    "SupabaseService",
+    "PolarService"
 ]
