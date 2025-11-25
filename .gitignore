@@ -26,6 +26,8 @@ env/
 ENV/
 .venv/
 .env/
+.env.prod
+.env.yaml
 
 # Environment Variables
 .env
@@ -78,3 +80,5 @@ tmp/
 
 # Scripts
 scripts/
+
+key.json
