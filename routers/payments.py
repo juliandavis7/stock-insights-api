@@ -1,17 +1,17 @@
-"""Payment endpoint router for Polar subscription management."""
+"""Payment endpoint router for Stripe subscription management."""
 import logging
 import os
-import json
 from typing import Dict
+import stripe
 from fastapi import APIRouter, Depends, Request, HTTPException, Header, Response
 from fastapi.responses import JSONResponse
 
 from core.auth import verify_token
-from services.polar_service import polar_service
+from services.stripe_service import stripe_service
 from services.supabase_service import supabase_service
 from core.rate_limit import user_limiter, HEALTH_USER_LIMIT
 from models.requests import CreateCheckoutRequest
-from models.responses import CheckoutResponse
+from models.responses import CheckoutResponse, PortalResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -26,7 +26,7 @@ async def create_checkout(
     user: Dict = Depends(verify_token)
 ):
     """
-    Create a Polar checkout session for subscription.
+    Create a Stripe checkout session for subscription.
     
     Protected endpoint - requires Clerk authentication.
     
@@ -64,6 +64,15 @@ async def create_checkout(
                 detail="User email not found. Please update your profile."
             )
         
+        # Check if user already has an active subscription
+        subscription_status = user_data.get('subscription_status')
+        if subscription_status == 'active':
+            logger.warning(f"⚠️ API: User {user_id} already has active subscription")
+            raise HTTPException(
+                status_code=400,
+                detail="You already have an active subscription."
+            )
+        
         # Set default URLs if not provided
         frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
         success_url = request_body.success_url or f"{frontend_url}/subscription?checkout=success"
@@ -72,8 +81,8 @@ async def create_checkout(
         logger.info(f"💳 API: Creating checkout for user {user_id} ({user_email})")
         
         # Create checkout session
-        result = await polar_service.create_checkout(
-            product_id=request_body.product_id,
+        result = await stripe_service.create_checkout_session(
+            price_id=request_body.price_id,
             customer_email=user_email,
             user_id=user_id,
             success_url=success_url,
@@ -94,77 +103,157 @@ async def create_checkout(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/payments/webhook")
-async def handle_polar_webhook(
+@router.post("/payments/portal", response_model=PortalResponse)
+@user_limiter.limit(HEALTH_USER_LIMIT)
+async def create_portal_session(
     request: Request,
-    webhook_signature: str = Header(None, alias="Webhook-Signature")
+    response: Response,
+    user: Dict = Depends(verify_token)
 ):
     """
-    Handle Polar webhook events.
+    Create a Stripe Customer Portal session for subscription management.
     
-    This endpoint is called by Polar when subscription events occur:
-    - subscription.created: New subscription started - grants access
-    - subscription.updated: Subscription renewed or changed
-    - subscription.cancelled: Subscription cancelled - revokes access
+    The portal allows users to:
+    - View their subscription details
+    - Cancel their subscription
+    - Update payment method
+    - View billing history
+    
+    Protected endpoint - requires Clerk authentication.
+    
+    Returns:
+        PortalResponse with portal URL to redirect user to
+    """
+    try:
+        # Get user ID from Clerk token
+        user_id = user.get('sub')
+        
+        if not user_id:
+            logger.error(f"❌ API: User ID not found in token")
+            raise HTTPException(status_code=400, detail="User ID not found in token")
+        
+        # Fetch user data from Supabase to get email
+        user_data = supabase_service.get_user_by_clerk_id(user_id)
+        
+        if not user_data:
+            logger.error(f"❌ API: User {user_id} not found in database")
+            raise HTTPException(
+                status_code=404,
+                detail="User not found. Please ensure you're registered in the system."
+            )
+        
+        user_email = user_data.get('email')
+        
+        if not user_email:
+            logger.error(f"❌ API: User {user_id} has no email in database")
+            raise HTTPException(
+                status_code=400,
+                detail="User email not found. Please update your profile."
+            )
+        
+        logger.info(f"🔧 API: Creating portal session for user {user_id}")
+        
+        # Find Stripe customer by email
+        customers = stripe.Customer.list(email=user_email, limit=1)
+        
+        if not customers.data:
+            logger.error(f"❌ API: No Stripe customer found for {user_id}")
+            raise HTTPException(
+                status_code=404,
+                detail="No subscription found. Please subscribe first."
+            )
+        
+        customer_id = customers.data[0].id
+        
+        # Create portal session
+        frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+        portal_session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=f"{frontend_url}/subscription"
+        )
+        
+        logger.info(f"✅ API: Portal session created for user {user_id}")
+        
+        return PortalResponse(portal_url=portal_session.url)
+        
+    except HTTPException:
+        raise
+    except stripe.error.StripeError as e:
+        logger.error(f"❌ API: Stripe error creating portal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"❌ API: Failed to create portal session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/payments/webhook")
+async def handle_stripe_webhook(
+    request: Request,
+    stripe_signature: str = Header(None, alias="Stripe-Signature")
+):
+    """
+    Handle Stripe webhook events.
+    
+    This endpoint is called by Stripe when subscription events occur:
+    - customer.subscription.created: New subscription started - grants access
+    - customer.subscription.updated: Subscription renewed or changed
+    - customer.subscription.deleted: Subscription cancelled - revokes access
     
     Args:
         request: FastAPI request object
-        webhook_signature: Webhook-Signature header from Polar for verification
+        stripe_signature: Stripe-Signature header from Stripe for verification
         
     Returns:
         JSON response indicating webhook processing status
     """
-    if not webhook_signature:
-        logger.error("❌ Webhook: Missing Webhook-Signature header")
-        raise HTTPException(status_code=400, detail="Missing Webhook-Signature header")
+    if not stripe_signature:
+        logger.error("❌ Webhook: Missing Stripe-Signature header")
+        raise HTTPException(status_code=400, detail="Missing Stripe-Signature header")
     
     try:
         # Get raw body for signature verification
         body = await request.body()
         
         # Validate webhook signature and parse event
-        event = polar_service.validate_webhook(body, webhook_signature)
+        event = stripe_service.validate_webhook(body, stripe_signature)
         
         # Handle different event types
         event_type = event.get('type')
         
         logger.info(f"🔔 Webhook: Received event type: {event_type}")
         
-        # Log minimal event info (avoid logging PII like emails, addresses, names)
-        subscription_data = event.get('data', {})
+        # Get subscription data from the event
+        subscription_data = event.get('data', {}).get('object', {})
         subscription_id = subscription_data.get('id', 'unknown')
         status = subscription_data.get('status', 'unknown')
-        logger.info(f"📦 Webhook: Subscription {subscription_id} - Status: {status}")
         
-        if event_type == 'subscription.created':
+        # Log full subscription data for debugging cancellation
+        logger.info(f"📦 Webhook: Subscription {subscription_id} - Status: {status}")
+        logger.debug(f"📋 Full subscription data: {subscription_data}")
+        
+        if event_type == 'customer.subscription.created':
             # New subscription started
-            subscription_data = event.get('data', {})
-            subscription_id = subscription_data.get('id')
-            
             logger.info(f"✅ Webhook: Subscription created: {subscription_id}")
             
-            # Get customer data (Polar nests metadata inside customer object)
-            customer_data = subscription_data.get('customer', {})
-            customer_metadata = customer_data.get('metadata', {})
+            # Get user ID from subscription metadata
+            metadata = subscription_data.get('metadata', {})
+            user_id = metadata.get('user_id') or metadata.get('clerk_user_id')
             
-            # Try multiple fields to find user ID (check nested customer.metadata first)
-            user_id = (
-                customer_metadata.get('user_id') or 
-                customer_metadata.get('clerk_user_id') or
-                subscription_data.get('metadata', {}).get('user_id') or
-                subscription_data.get('metadata', {}).get('clerk_user_id')
-            )
+            # If no metadata, try to get customer email for fallback lookup
+            customer_id = subscription_data.get('customer')
+            customer_email = None
             
-            # Get customer email from nested customer object (for fallback only, don't log it)
-            customer_email = customer_data.get('email')
+            if not user_id and customer_id:
+                # Fetch customer to get email
+                try:
+                    import stripe
+                    customer = stripe.Customer.retrieve(customer_id)
+                    customer_email = customer.get('email')
+                except Exception as e:
+                    logger.warning(f"⚠️  Webhook: Could not fetch customer: {e}")
             
-            # Log only if user_id was found or not (don't log actual values for privacy)
             if user_id:
                 logger.info(f"🔍 Webhook: User ID found in metadata")
-            else:
-                logger.warning(f"⚠️  Webhook: No user_id in metadata, will attempt email lookup")
-            
-            if user_id:
                 # Update user's subscription status to active
                 updated_user = supabase_service.update_subscription_status(
                     clerk_user_id=user_id,
@@ -190,38 +279,44 @@ async def handle_polar_webhook(
             else:
                 logger.error(f"❌ Webhook: No user_id or customer_email found in subscription data!")
             
-        elif event_type == 'subscription.updated':
+        elif event_type == 'customer.subscription.updated':
             # Subscription updated (renewed, changed plan, etc.)
-            subscription_data = event.get('data', {})
-            subscription_id = subscription_data.get('id')
-            status = subscription_data.get('status')
+            cancel_at_period_end = subscription_data.get('cancel_at_period_end', False)
+            canceled_at = subscription_data.get('canceled_at')
+            cancel_at = subscription_data.get('cancel_at')
+            ended_at = subscription_data.get('ended_at')
             
-            logger.info(f"🔄 Webhook: Subscription updated: {subscription_id} - Status: {status}")
+            logger.info(f"🔄 Webhook: Subscription updated: {subscription_id}")
+            logger.info(f"   Status: {status}")
+            logger.info(f"   cancel_at_period_end: {cancel_at_period_end}")
+            logger.info(f"   canceled_at: {canceled_at}")
+            logger.info(f"   cancel_at: {cancel_at}")
+            logger.info(f"   ended_at: {ended_at}")
+            logger.info(f"   Full subscription keys: {list(subscription_data.keys())[:20]}...")  # First 20 keys
             
-            # Get customer data (Polar nests metadata inside customer object)
-            customer_data = subscription_data.get('customer', {})
-            customer_metadata = customer_data.get('metadata', {})
+            # Get user ID from subscription metadata
+            metadata = subscription_data.get('metadata', {})
+            user_id = metadata.get('user_id') or metadata.get('clerk_user_id')
             
-            user_id = (
-                customer_metadata.get('user_id') or 
-                customer_metadata.get('clerk_user_id') or
-                subscription_data.get('metadata', {}).get('user_id') or
-                subscription_data.get('metadata', {}).get('clerk_user_id')
-            )
+            # If no metadata, try to get customer email for fallback lookup
+            customer_id = subscription_data.get('customer')
+            customer_email = None
             
-            customer_email = customer_data.get('email')
-            
-            # Log only if user_id was found or not (don't log actual values for privacy)
-            if user_id:
-                logger.info(f"🔍 Webhook: User ID found in metadata")
-            else:
-                logger.warning(f"⚠️  Webhook: No user_id in metadata, will attempt email lookup")
+            if not user_id and customer_id:
+                try:
+                    import stripe
+                    customer = stripe.Customer.retrieve(customer_id)
+                    customer_email = customer.get('email')
+                except Exception as e:
+                    logger.warning(f"⚠️  Webhook: Could not fetch customer: {e}")
             
             if user_id and status:
-                # Map Polar status to our status
+                logger.info(f"🔍 Webhook: User ID found in metadata")
+                # Map Stripe status to our status
+                # Keep user active even if they've scheduled cancellation - they stay active until billing period ends
                 if status in ['active', 'trialing']:
                     new_status = 'active'
-                elif status in ['canceled', 'incomplete_expired', 'unpaid']:
+                elif status in ['canceled', 'incomplete_expired', 'unpaid', 'past_due']:
                     new_status = 'expired'
                 else:
                     new_status = 'expired'  # Default to expired for unknown statuses
@@ -241,10 +336,11 @@ async def handle_polar_webhook(
                 if user_data:
                     clerk_user_id = user_data.get('clerk_user_id')
                     
-                    # Map Polar status to our status
+                    # Map Stripe status to our status
+                    # Keep user active even if they've scheduled cancellation - they stay active until billing period ends
                     if status in ['active', 'trialing']:
                         new_status = 'active'
-                    elif status in ['canceled', 'incomplete_expired', 'unpaid']:
+                    elif status in ['canceled', 'incomplete_expired', 'unpaid', 'past_due']:
                         new_status = 'expired'
                     else:
                         new_status = 'expired'
@@ -260,33 +356,30 @@ async def handle_polar_webhook(
             else:
                 logger.error(f"❌ Webhook: No user_id or customer_email found in subscription data!")
             
-        elif event_type == 'subscription.cancelled':
+        elif event_type == 'customer.subscription.deleted':
             # Subscription cancelled - revoke access
-            subscription_data = event.get('data', {})
-            subscription_id = subscription_data.get('id')
+            logger.warning(f"❌ Webhook: Subscription deleted: {subscription_id}")
+            logger.info(f"📋 Deleted subscription data: cancel_at_period_end={subscription_data.get('cancel_at_period_end')}, canceled_at={subscription_data.get('canceled_at')}, status={subscription_data.get('status')}")
             
-            logger.warning(f"❌ Webhook: Subscription cancelled: {subscription_id}")
+            # Get user ID from subscription metadata
+            metadata = subscription_data.get('metadata', {})
+            user_id = metadata.get('user_id') or metadata.get('clerk_user_id')
+            logger.info(f"🔍 Webhook: Looking for user_id in metadata: {metadata}")
             
-            # Get customer data (Polar nests metadata inside customer object)
-            customer_data = subscription_data.get('customer', {})
-            customer_metadata = customer_data.get('metadata', {})
+            # If no metadata, try to get customer email for fallback lookup
+            customer_id = subscription_data.get('customer')
+            customer_email = None
             
-            user_id = (
-                customer_metadata.get('user_id') or 
-                customer_metadata.get('clerk_user_id') or
-                subscription_data.get('metadata', {}).get('user_id') or
-                subscription_data.get('metadata', {}).get('clerk_user_id')
-            )
+            if not user_id and customer_id:
+                try:
+                    import stripe
+                    customer = stripe.Customer.retrieve(customer_id)
+                    customer_email = customer.get('email')
+                except Exception as e:
+                    logger.warning(f"⚠️  Webhook: Could not fetch customer: {e}")
             
-            customer_email = customer_data.get('email')
-            
-            # Log only if user_id was found or not (don't log actual values for privacy)
             if user_id:
                 logger.info(f"🔍 Webhook: User ID found in metadata")
-            else:
-                logger.warning(f"⚠️  Webhook: No user_id in metadata, will attempt email lookup")
-            
-            if user_id:
                 # Update user's subscription status to expired
                 updated_user = supabase_service.update_subscription_status(
                     clerk_user_id=user_id,
@@ -326,4 +419,3 @@ async def handle_polar_webhook(
     except Exception as e:
         logger.error(f"❌ Webhook: Processing error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-
