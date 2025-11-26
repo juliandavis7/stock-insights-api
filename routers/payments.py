@@ -16,15 +16,6 @@ from models.responses import CheckoutResponse, PortalResponse
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Ensure Stripe API key is set (fallback in case stripe_service didn't initialize)
-if not stripe.api_key:
-    stripe_key = os.getenv('STRIPE_SECRET_KEY')
-    if stripe_key:
-        stripe.api_key = stripe_key
-        logger.info("✅ Stripe API key configured in payments router")
-    else:
-        logger.warning("⚠️  STRIPE_SECRET_KEY not found - Stripe operations will fail")
-
 
 @router.post("/payments/checkout", response_model=CheckoutResponse)
 @user_limiter.limit(HEALTH_USER_LIMIT)
