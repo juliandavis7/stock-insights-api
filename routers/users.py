@@ -1,8 +1,10 @@
 """Users endpoint router."""
 import logging
+import os
 from typing import Dict, Optional
 from fastapi import APIRouter, Depends, Request, HTTPException, Path, Body
 from fastapi.responses import JSONResponse
+import stripe
 
 from core.auth import verify_token
 from services.supabase_service import supabase_service
@@ -11,6 +13,15 @@ from models.requests import UpdateSubscriptionStatusRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Ensure Stripe API key is set (needed for subscription cancellation checks)
+if not stripe.api_key:
+    stripe_key = os.getenv('STRIPE_SECRET_KEY')
+    if stripe_key:
+        stripe.api_key = stripe_key
+        logger.info("✅ Stripe API key configured in users router")
+    else:
+        logger.warning("⚠️  STRIPE_SECRET_KEY not found - Stripe operations will fail")
 
 
 def enrich_user_with_subscription_info(user_data: Dict) -> Dict:
@@ -60,7 +71,6 @@ def enrich_user_with_subscription_info(user_data: Dict) -> Dict:
     # Handle active paid users - check Stripe for cancellation status
     if subscription_status == 'active':
         try:
-            import stripe
             user_email = user_data.get('email')
             
             if not user_email:
