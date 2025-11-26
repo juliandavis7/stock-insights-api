@@ -10,15 +10,6 @@ import stripe
 
 logger = logging.getLogger(__name__)
 
-# Set Stripe API key at module level to ensure it's always available
-# This ensures stripe.api_key is set even if StripeService initialization fails
-_stripe_api_key = os.getenv('STRIPE_SECRET_KEY')
-if _stripe_api_key:
-    stripe.api_key = _stripe_api_key
-    logger.info("✅ Stripe API key configured")
-else:
-    logger.warning("⚠️  STRIPE_SECRET_KEY not found in environment variables")
-
 
 class StripeService:
     """Service for managing Stripe payments and subscriptions."""
