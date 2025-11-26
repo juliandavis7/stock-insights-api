@@ -36,8 +36,10 @@ class SupabaseService:
             Dict with user data and trial status
         """
         try:
-            # Try to get existing user
-            response = self.client.table('users').select('*').eq('clerk_user_id', clerk_user_id).execute()
+            # Try to get existing user (need trial_ends_at for trial status checks)
+            response = self.client.table('users').select(
+                'id,clerk_user_id,email,subscription_status,trial_ends_at'
+            ).eq('clerk_user_id', clerk_user_id).execute()
             
             if response.data and len(response.data) > 0:
                 user = response.data[0]
@@ -68,7 +70,10 @@ class SupabaseService:
             Tuple of (is_active, error_message)
         """
         try:
-            response = self.client.table('users').select('*').eq('clerk_user_id', clerk_user_id).execute()
+            # Need trial_ends_at for trial expiration check
+            response = self.client.table('users').select(
+                'id,clerk_user_id,email,subscription_status,trial_ends_at'
+            ).eq('clerk_user_id', clerk_user_id).execute()
             
             if not response.data or len(response.data) == 0:
                 return False, "User not found"
@@ -135,10 +140,13 @@ class SupabaseService:
         Get all users from the users table.
         
         Returns:
-            List of all users with their details
+            List of all users with their details (excluding internal fields)
         """
         try:
-            response = self.client.table('users').select('*').execute()
+            # Select only fields needed for API response (trial_ends_at needed internally for enrichment)
+            response = self.client.table('users').select(
+                'id,clerk_user_id,email,subscription_status,trial_ends_at'
+            ).execute()
             logger.info(f"✅ Fetched {len(response.data)} users from Supabase")
             return response.data
         except Exception as e:
@@ -153,10 +161,13 @@ class SupabaseService:
             clerk_user_id: Clerk user ID from JWT 'sub' field
             
         Returns:
-            User data or None if not found
+            User data or None if not found (trial_ends_at included for internal use)
         """
         try:
-            response = self.client.table('users').select('*').eq('clerk_user_id', clerk_user_id).execute()
+            # Select only fields needed (trial_ends_at needed internally for enrichment)
+            response = self.client.table('users').select(
+                'id,clerk_user_id,email,subscription_status,trial_ends_at'
+            ).eq('clerk_user_id', clerk_user_id).execute()
             
             if response.data and len(response.data) > 0:
                 return response.data[0]
@@ -173,10 +184,13 @@ class SupabaseService:
             email: User's email address
             
         Returns:
-            User data or None if not found
+            User data or None if not found (trial_ends_at included for internal use)
         """
         try:
-            response = self.client.table('users').select('*').eq('email', email).execute()
+            # Select only fields needed (trial_ends_at needed internally for enrichment)
+            response = self.client.table('users').select(
+                'id,clerk_user_id,email,subscription_status,trial_ends_at'
+            ).eq('email', email).execute()
             
             if response.data and len(response.data) > 0:
                 return response.data[0]

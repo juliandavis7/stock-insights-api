@@ -132,6 +132,11 @@ class CheckoutResponse(BaseModel):
     status: str
 
 
+class PortalResponse(BaseModel):
+    """Response model for Stripe Customer Portal session."""
+    portal_url: str
+
+
 class SubscriptionsResponse(BaseModel):
     """Response model for user subscriptions."""
     subscriptions: List[Dict[str, Any]]

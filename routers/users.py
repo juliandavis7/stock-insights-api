@@ -1,6 +1,6 @@
 """Users endpoint router."""
 import logging
-from typing import Dict
+from typing import Dict, Optional
 from fastapi import APIRouter, Depends, Request, HTTPException, Path, Body
 from fastapi.responses import JSONResponse
 
@@ -11,6 +11,101 @@ from models.requests import UpdateSubscriptionStatusRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def enrich_user_with_subscription_info(user_data: Dict) -> Dict:
+    """
+    Enrich user data with subscription end date information.
+    
+    Unified field structure:
+    - subscription_status: 'trial' | 'active' | 'expired'
+    - subscription_ends_at: Unix timestamp (null if active and not canceled)
+    
+    For trial users: Uses trial_ends_at from database
+    For active paid users: Checks Stripe for cancellation status
+    For expired users: subscription_ends_at is null
+    
+    Args:
+        user_data: User data dictionary from Supabase
+        
+    Returns:
+        User data dictionary with subscription_ends_at added/updated
+    """
+    subscription_status = user_data.get('subscription_status')
+    
+    # Handle trial users - use trial_ends_at from database
+    if subscription_status == 'trial':
+        trial_ends_at = user_data.get('trial_ends_at')
+        if trial_ends_at:
+            # Convert ISO datetime to Unix timestamp
+            try:
+                from datetime import datetime, timezone
+                if isinstance(trial_ends_at, str):
+                    dt = datetime.fromisoformat(trial_ends_at.replace('Z', '+00:00'))
+                    user_data['subscription_ends_at'] = int(dt.timestamp())
+                else:
+                    user_data['subscription_ends_at'] = trial_ends_at
+            except Exception as e:
+                logger.warning(f"⚠️  API: Could not parse trial_ends_at: {e}")
+                user_data['subscription_ends_at'] = None
+        else:
+            user_data['subscription_ends_at'] = None
+        return user_data
+    
+    # Handle expired users
+    if subscription_status == 'expired':
+        user_data['subscription_ends_at'] = None
+        return user_data
+    
+    # Handle active paid users - check Stripe for cancellation status
+    if subscription_status == 'active':
+        try:
+            import stripe
+            user_email = user_data.get('email')
+            
+            if not user_email:
+                user_data['subscription_ends_at'] = None
+                return user_data
+            
+            # Find Stripe customer by email
+            customers = stripe.Customer.list(email=user_email, limit=1)
+            
+            if not customers.data:
+                user_data['subscription_ends_at'] = None
+                return user_data
+            
+            customer_id = customers.data[0].id
+            
+            # Get active subscriptions
+            subscriptions = stripe.Subscription.list(
+                customer=customer_id,
+                status='active',
+                limit=1
+            )
+            
+            if not subscriptions.data:
+                user_data['subscription_ends_at'] = None
+                return user_data
+            
+            subscription = subscriptions.data[0]
+            cancel_at = subscription.get('cancel_at')
+            cancel_at_period_end = subscription.get('cancel_at_period_end', False)
+            current_period_end = subscription.get('current_period_end')
+            
+            # If subscription is scheduled to cancel, set subscription_ends_at
+            if cancel_at or cancel_at_period_end:
+                # Use cancel_at if set, otherwise use current_period_end
+                user_data['subscription_ends_at'] = cancel_at if cancel_at else current_period_end
+                logger.info(f"📅 User {user_data.get('clerk_user_id')} has canceled subscription ending at {user_data['subscription_ends_at']}")
+            else:
+                # Active subscription, not canceled - no end date
+                user_data['subscription_ends_at'] = None
+        
+        except Exception as e:
+            logger.warning(f"⚠️  API: Could not check Stripe cancellation status: {e}")
+            user_data['subscription_ends_at'] = None
+    
+    return user_data
 
 
 @router.get("/users")
@@ -30,6 +125,10 @@ def get_users(
         
         # Fetch all users using the service
         users = supabase_service.get_all_users()
+        
+        # Remove internal fields from each user
+        for user in users:
+            user.pop('trial_ends_at', None)
         
         logger.info(f"✅ API: Successfully fetched {len(users)} users")
         
@@ -102,6 +201,12 @@ def get_current_user(
                 }
             )
         
+        # Enrich user data with subscription end date info (trial or Stripe cancellation)
+        user_data = enrich_user_with_subscription_info(user_data)
+        
+        # Remove internal field that was used for enrichment but shouldn't be in response
+        user_data.pop('trial_ends_at', None)
+        
         logger.info(f"✅ API: Successfully retrieved current user data for {user_id}")
         
         return JSONResponse(content={
@@ -167,6 +272,12 @@ def get_user(
                     "error": f"User {clerk_user_id} not found"
                 }
             )
+        
+        # Enrich user data with subscription end date info (trial or Stripe cancellation)
+        user_data = enrich_user_with_subscription_info(user_data)
+        
+        # Remove internal field that was used for enrichment but shouldn't be in response
+        user_data.pop('trial_ends_at', None)
         
         logger.info(f"✅ API: Successfully fetched user {clerk_user_id}")
         

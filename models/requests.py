@@ -19,8 +19,8 @@ class UpdateSubscriptionStatusRequest(BaseModel):
 
 
 class CreateCheckoutRequest(BaseModel):
-    """Request model for creating a Polar checkout session."""
-    product_id: str = Field(..., description="Polar product ID from dashboard")
+    """Request model for creating a Stripe checkout session."""
+    price_id: str = Field(..., description="Stripe price ID from dashboard (e.g., price_xxxxx)")
     success_url: Optional[str] = Field(None, description="URL to redirect after successful payment")
     cancel_url: Optional[str] = Field(None, description="URL to redirect if user cancels")
 

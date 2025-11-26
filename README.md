@@ -18,9 +18,10 @@ CLERK_SECRET_KEY=your_clerk_secret_key
 SUPABASE_URL=your_supabase_url
 SUPABASE_KEY=your_supabase_anon_key
 
-# Polar Payments (optional - for subscription management)
-POLAR_ACCESS_TOKEN=your_polar_access_token
-POLAR_WEBHOOK_SECRET=your_polar_webhook_secret
+# Stripe Payments (optional - for subscription management)
+STRIPE_SECRET_KEY=your_stripe_secret_key
+STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
+STRIPE_PRICE_ID=your_stripe_price_id
 
 # Frontend URL (for payment redirects)
 FRONTEND_URL=http://localhost:5173
@@ -48,8 +49,9 @@ uvicorn api:app --reload
 - **CLERK_SECRET_KEY**: Clerk authentication secret key
 - **SUPABASE_URL**: Supabase project URL
 - **SUPABASE_KEY**: Supabase anonymous/public key
-- **POLAR_ACCESS_TOKEN** (Optional): Polar payment access token for subscriptions
-- **POLAR_WEBHOOK_SECRET** (Optional): Polar webhook secret for event verification
+- **STRIPE_SECRET_KEY** (Optional): Stripe secret key for payment processing
+- **STRIPE_WEBHOOK_SECRET** (Optional): Stripe webhook secret for event verification
+- **STRIPE_PRICE_ID** (Optional): Stripe price ID for the $10/month subscription
 
 ## Security Notes
 

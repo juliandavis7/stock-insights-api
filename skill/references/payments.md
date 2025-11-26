@@ -1,22 +1,23 @@
-# Payment Endpoints (Polar Integration)
+# Payment Endpoints (Stripe Integration)
 
-This document describes the payment endpoints for managing subscriptions through Polar.
+This document describes the payment endpoints for managing subscriptions through Stripe.
 
 ## Overview
 
-The payment system uses [Polar](https://polar.sh/) for subscription management and payment processing. These endpoints handle:
+The payment system uses [Stripe](https://stripe.com/) for subscription management and payment processing. These endpoints handle:
 - Creating checkout sessions for subscriptions
-- Processing webhook events from Polar
+- Processing webhook events from Stripe
 
-**Note:** Subscription status is checked via your Supabase database (kept in sync by webhooks), not by querying Polar directly. This is faster and more efficient.
+**Note:** Subscription status is checked via your Supabase database (kept in sync by webhooks), not by querying Stripe directly. This is faster and more efficient.
 
 ## Configuration
 
 ### Environment Variables
 
 ```env
-POLAR_ACCESS_TOKEN=your_polar_access_token
-POLAR_WEBHOOK_SECRET=your_polar_webhook_secret
+STRIPE_SECRET_KEY=sk_test_xxxxx
+STRIPE_WEBHOOK_SECRET=whsec_xxxxx
+STRIPE_PRICE_ID=price_xxxxx
 FRONTEND_URL=http://localhost:5173
 ENVIRONMENT=dev
 ```
@@ -24,7 +25,7 @@ ENVIRONMENT=dev
 ### Service
 
 The payment functionality is implemented in:
-- **Service**: `services/polar_service.py`
+- **Service**: `services/stripe_service.py`
 - **Router**: `routers/payments.py`
 - **Models**: `models/requests.py`, `models/responses.py`
 
@@ -34,7 +35,7 @@ The payment functionality is implemented in:
 
 **POST** `/payments/checkout`
 
-Creates a Polar checkout session for purchasing a subscription.
+Creates a Stripe checkout session for purchasing a subscription ($10/month).
 
 #### Authentication
 - **Required**: Yes (Clerk JWT token)
@@ -45,23 +46,23 @@ Creates a Polar checkout session for purchasing a subscription.
 
 ```json
 {
-  "product_id": "prod_xxxxx",
+  "price_id": "price_xxxxx",
   "success_url": "https://yourapp.com/search?checkout=success",
   "cancel_url": "https://yourapp.com/pricing?checkout=cancelled"
 }
 ```
 
 **Fields:**
-- `product_id` (required): The Polar product ID from your Polar dashboard
-- `success_url` (optional): Redirect URL after successful payment (defaults to `{FRONTEND_URL}/search?checkout=success`)
+- `price_id` (required): The Stripe price ID from your Stripe dashboard (e.g., `price_1ABC...`)
+- `success_url` (optional): Redirect URL after successful payment (defaults to `{FRONTEND_URL}/subscription?checkout=success`)
 - `cancel_url` (optional): Redirect URL if user cancels (defaults to `{FRONTEND_URL}/pricing?checkout=cancelled`)
 
 #### Response
 
 ```json
 {
-  "checkout_url": "https://polar.sh/checkout/xxxxx",
-  "checkout_id": "checkout_xxxxx",
+  "checkout_url": "https://checkout.stripe.com/c/pay/xxxxx",
+  "checkout_id": "cs_xxxxx",
   "status": "created"
 }
 ```
@@ -85,7 +86,7 @@ response = httpx.post(
     "http://localhost:8000/payments/checkout",
     headers=headers,
     json={
-        "product_id": "prod_xxxxx"
+        "price_id": "price_xxxxx"
     }
 )
 
@@ -99,7 +100,7 @@ checkout_url = data["checkout_url"]
 - `400`: Missing user email or invalid request
 - `401`: Unauthorized (invalid/missing token)
 - `404`: User not found in database (user must be registered first)
-- `500`: Internal server error (Polar API error)
+- `500`: Internal server error (Stripe API error)
 
 ---
 
@@ -107,7 +108,7 @@ checkout_url = data["checkout_url"]
 
 **POST** `/payments/webhook`
 
-Handles webhook events from Polar for subscription lifecycle management.
+Handles webhook events from Stripe for subscription lifecycle management.
 
 #### Authentication
 - **Required**: No (uses signature verification instead)
@@ -116,43 +117,37 @@ Handles webhook events from Polar for subscription lifecycle management.
 #### Headers
 
 ```
-Webhook-Signature: t=1234567890,v1=signature_hash
+Stripe-Signature: t=1234567890,v1=signature_hash
 ```
 
-The `Webhook-Signature` header is automatically added by Polar and is used to verify the webhook authenticity.
+The `Stripe-Signature` header is automatically added by Stripe and is used to verify the webhook authenticity.
 
 #### Event Types Handled
 
-1. **subscription.created**: New subscription started - grants access
-2. **subscription.updated**: Subscription renewed or changed
-3. **subscription.cancelled**: Subscription cancelled - revokes access
+1. **customer.subscription.created**: New subscription started - grants access
+2. **customer.subscription.updated**: Subscription renewed or changed
+3. **customer.subscription.deleted**: Subscription cancelled - revokes access
 
 #### Response
 
 ```json
 {
   "status": "success",
-  "event_type": "subscription.created"
+  "event_type": "customer.subscription.created"
 }
 ```
 
 #### Webhook Configuration
 
-Configure the webhook URL in your Polar dashboard:
+Configure the webhook URL in your Stripe dashboard:
 ```
 https://your-api.com/payments/webhook
 ```
 
-#### Example Event Processing
-
-```python
-# This happens automatically when Polar sends a webhook
-# The endpoint will:
-# 1. Verify the signature
-# 2. Parse the event
-# 3. Handle based on event type
-# 4. Update user subscription status (TODO)
-```
+Subscribe to these events:
+- `customer.subscription.created`
+- `customer.subscription.updated`
+- `customer.subscription.deleted`
 
 #### Error Responses
 
@@ -166,14 +161,14 @@ https://your-api.com/payments/webhook
 ### New Subscription Flow
 
 1. **Frontend**: User clicks "Subscribe" button
-2. **Frontend**: Call `POST /payments/checkout` with product_id
-3. **API**: Creates Polar checkout session
+2. **Frontend**: Call `POST /payments/checkout` with price_id
+3. **API**: Creates Stripe checkout session
 4. **API**: Returns checkout_url
 5. **Frontend**: Redirect user to checkout_url
-6. **User**: Completes payment on Polar
-7. **Polar**: Sends webhook to `/payments/webhook`
+6. **User**: Completes payment on Stripe
+7. **Stripe**: Sends webhook to `/payments/webhook`
 8. **API**: Processes webhook and updates user subscription
-9. **Polar**: Redirects user to success_url
+9. **Stripe**: Redirects user to success_url
 
 ### Checking Subscription Status
 
@@ -196,8 +191,8 @@ if (user.subscription_status === 'active') {
 
 All subscription lifecycle events (renewal, cancellation, etc.) are automatically handled via webhooks:
 
-1. **Polar**: Subscription event occurs
-2. **Polar**: Sends webhook to `/payments/webhook`
+1. **Stripe**: Subscription event occurs
+2. **Stripe**: Sends webhook to `/payments/webhook`
 3. **API**: Updates user subscription in database
 4. **Frontend**: Next API call reflects updated status
 
@@ -207,10 +202,10 @@ All subscription lifecycle events (renewal, cancellation, etc.) are automaticall
 
 ### Webhook Security
 
-Webhooks are verified using the `Webhook-Signature` header:
+Webhooks are verified using the `Stripe-Signature` header:
 - Signature includes timestamp to prevent replay attacks
 - Uses HMAC with your webhook secret
-- Automatically validated by `polar_service.validate_webhook()`
+- Automatically validated by `stripe.Webhook.construct_event()`
 
 ### User Data Linkage
 
@@ -222,7 +217,36 @@ metadata = {
 }
 ```
 
-This allows you to identify which user completed the payment when processing webhooks.
+This metadata is also stored on the subscription via `subscription_data`, allowing you to identify which user completed the payment when processing webhooks.
+
+---
+
+## Stripe Dashboard Setup
+
+### 1. Create a Product and Price
+
+1. Go to Stripe Dashboard → Products
+2. Click "Add product"
+3. Name: "Stock Insights Pro" (or your product name)
+4. Pricing: $10/month recurring
+5. Save and copy the Price ID (e.g., `price_1ABC...`)
+
+### 2. Set Up Webhooks
+
+1. Go to Stripe Dashboard → Developers → Webhooks
+2. Click "Add endpoint"
+3. Endpoint URL: `https://your-api.com/payments/webhook`
+4. Select events:
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+5. Add endpoint
+6. Copy the webhook signing secret
+
+### 3. Get API Keys
+
+1. Go to Stripe Dashboard → Developers → API keys
+2. Copy your Secret key (starts with `sk_test_` for test mode)
 
 ---
 
@@ -230,15 +254,20 @@ This allows you to identify which user completed the payment when processing web
 
 ### Local Development
 
-1. Install Polar SDK: `pip install polar-sdk`
-2. Set environment variables in `.env`
-3. Use Polar sandbox mode for testing
-4. Use ngrok or similar for webhook testing:
-   ```bash
-   ngrok http 8000
-   # Configure webhook URL in Polar dashboard:
-   # https://your-ngrok-url.ngrok.io/payments/webhook
-   ```
+1. Install Stripe CLI: `brew install stripe/stripe-cli/stripe`
+2. Login: `stripe login`
+3. Forward webhooks to local: `stripe listen --forward-to localhost:8000/payments/webhook`
+4. Copy the webhook signing secret from the CLI output
+5. Use test mode API keys
+
+### Test Cards
+
+Use these test card numbers:
+- **Success**: `4242 4242 4242 4242`
+- **Decline**: `4000 0000 0000 0002`
+- **Requires authentication**: `4000 0025 0000 3155`
+
+Any future expiry date and any 3-digit CVC will work.
 
 ### Test Checkout Flow
 
@@ -248,7 +277,7 @@ curl -X POST http://localhost:8000/payments/checkout \
   -H "Authorization: Bearer YOUR_CLERK_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "product_id": "prod_xxxxx"
+    "price_id": "price_xxxxx"
   }'
 ```
 
@@ -258,25 +287,26 @@ curl -X POST http://localhost:8000/payments/checkout \
 
 ✅ **All webhook handlers are fully implemented!**
 
-1. **subscription.created** - Grants user access
+1. **customer.subscription.created** - Grants user access
    - Updates user's subscription_status to 'active'
    - Logs successful activation
 
-2. **subscription.updated** - Handles renewals and changes
-   - Maps Polar status to your status ('active', 'expired')
+2. **customer.subscription.updated** - Handles renewals and changes
+   - Maps Stripe status to your status ('active', 'expired')
    - Updates user subscription accordingly
 
-3. **subscription.cancelled** - Revokes access
+3. **customer.subscription.deleted** - Revokes access
    - Updates user's subscription_status to 'expired'
    - User loses access to paid features
 
-The webhook automatically keeps your Supabase database in sync with Polar's subscription data.
+The webhook automatically keeps your Supabase database in sync with Stripe's subscription data.
 
 ---
 
 ## Resources
 
-- [Polar Documentation](https://docs.polar.sh/)
-- [Polar Python SDK](https://github.com/polarsource/polar-python)
-- [Webhook Events Reference](https://docs.polar.sh/webhooks)
-
+- [Stripe Documentation](https://stripe.com/docs)
+- [Stripe Python SDK](https://github.com/stripe/stripe-python)
+- [Stripe Checkout](https://stripe.com/docs/payments/checkout)
+- [Stripe Webhooks](https://stripe.com/docs/webhooks)
+- [Stripe CLI](https://stripe.com/docs/stripe-cli)
