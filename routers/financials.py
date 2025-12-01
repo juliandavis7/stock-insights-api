@@ -239,6 +239,85 @@ def get_financials(request: Request, ticker: str = Query(..., description="Stock
                 year_data_map[year]['eps'] += quarter.get('eps', 0) or 0
                 year_data_map[year]['epsDiluted'] += quarter.get('epsDiluted', 0) or 0
         
+        # Handle fiscal years that span calendar years
+        # If a calendar year has 3 quarters that are Q1-Q3 of a fiscal year,
+        # include the Q4 from the next calendar year if it belongs to the same fiscal year
+        sorted_years = sorted(year_data_map.keys())
+        for i, year in enumerate(sorted_years):
+            year_summary = year_data_map[year]
+            quarters = year_summary['quarters']
+            
+            # Check if this year has exactly 3 quarters
+            if len(quarters) == 3:
+                # Check if they're Q1, Q2, Q3 of the same fiscal year
+                fiscal_years = set(q.get('fiscalYear') for q in quarters)
+                periods = set(q.get('period') for q in quarters)
+                
+                if len(fiscal_years) == 1 and periods == {'Q1', 'Q2', 'Q3'}:
+                    fiscal_year = list(fiscal_years)[0]
+                    # Look for Q4 of the same fiscal year in the next calendar year
+                    if i + 1 < len(sorted_years):
+                        next_year = sorted_years[i + 1]
+                        next_year_summary = year_data_map[next_year]
+                        next_year_quarters = next_year_summary['quarters']
+                        
+                        # Find Q4 of the same fiscal year
+                        for q4_quarter in next_year_quarters:
+                            if (q4_quarter.get('fiscalYear') == fiscal_year and 
+                                q4_quarter.get('period') == 'Q4'):
+                                # Add Q4 to current year
+                                year_summary['quarters'].append(q4_quarter)
+                                year_summary['totalRevenue'] += q4_quarter.get('revenue', 0) or 0
+                                year_summary['costOfRevenue'] += q4_quarter.get('costOfRevenue', 0) or 0
+                                year_summary['grossProfit'] += q4_quarter.get('grossProfit', 0) or 0
+                                year_summary['sellingGeneralAndAdministrative'] += q4_quarter.get('sellingGeneralAndAdministrativeExpenses', 0) or 0
+                                year_summary['researchAndDevelopment'] += q4_quarter.get('researchAndDevelopmentExpenses', 0) or 0
+                                year_summary['operatingExpenses'] += q4_quarter.get('operatingExpenses', 0) or 0
+                                year_summary['operatingIncome'] += q4_quarter.get('operatingIncome', 0) or 0
+                                year_summary['netIncome'] += q4_quarter.get('netIncome', 0) or 0
+                                year_summary['eps'] += q4_quarter.get('eps', 0) or 0
+                                year_summary['epsDiluted'] += q4_quarter.get('epsDiluted', 0) or 0
+                                break
+        
+        # Handle calendar years with more than 4 quarters
+        # When a calendar year has multiple fiscal years, keep only the most recent complete fiscal year
+        for year in sorted_years:
+            year_summary = year_data_map[year]
+            quarters = year_summary['quarters']
+            
+            if len(quarters) > 4:
+                # Group quarters by fiscal year
+                fiscal_year_map = {}
+                for quarter in quarters:
+                    fiscal_year = quarter.get('fiscalYear')
+                    if fiscal_year not in fiscal_year_map:
+                        fiscal_year_map[fiscal_year] = []
+                    fiscal_year_map[fiscal_year].append(quarter)
+                
+                # Find the fiscal year with all 4 quarters (Q1-Q4)
+                complete_fiscal_year = None
+                for fiscal_year, fy_quarters in fiscal_year_map.items():
+                    periods = set(q.get('period') for q in fy_quarters)
+                    if periods == {'Q1', 'Q2', 'Q3', 'Q4'}:
+                        complete_fiscal_year = fiscal_year
+                        break
+                
+                # If we found a complete fiscal year, use only those quarters
+                if complete_fiscal_year:
+                    complete_quarters = fiscal_year_map[complete_fiscal_year]
+                    # Recalculate totals for only the complete fiscal year quarters
+                    year_summary['quarters'] = complete_quarters
+                    year_summary['totalRevenue'] = sum(q.get('revenue', 0) or 0 for q in complete_quarters)
+                    year_summary['costOfRevenue'] = sum(q.get('costOfRevenue', 0) or 0 for q in complete_quarters)
+                    year_summary['grossProfit'] = sum(q.get('grossProfit', 0) or 0 for q in complete_quarters)
+                    year_summary['sellingGeneralAndAdministrative'] = sum(q.get('sellingGeneralAndAdministrativeExpenses', 0) or 0 for q in complete_quarters)
+                    year_summary['researchAndDevelopment'] = sum(q.get('researchAndDevelopmentExpenses', 0) or 0 for q in complete_quarters)
+                    year_summary['operatingExpenses'] = sum(q.get('operatingExpenses', 0) or 0 for q in complete_quarters)
+                    year_summary['operatingIncome'] = sum(q.get('operatingIncome', 0) or 0 for q in complete_quarters)
+                    year_summary['netIncome'] = sum(q.get('netIncome', 0) or 0 for q in complete_quarters)
+                    year_summary['eps'] = sum(q.get('eps', 0) or 0 for q in complete_quarters)
+                    year_summary['epsDiluted'] = sum(q.get('epsDiluted', 0) or 0 for q in complete_quarters)
+        
         # Convert to FinancialDataResponse objects (only years with 4 complete quarters)
         for year in sorted(year_data_map.keys(), reverse=True):
             year_summary = year_data_map[year]
