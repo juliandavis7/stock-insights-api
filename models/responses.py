@@ -6,27 +6,48 @@ from typing import Dict, Optional, Any, List
 
 class MetricsResponse(BaseModel):
     """Model for stock metrics response"""
-    ttm_pe: Optional[float]
-    forward_pe: Optional[float]
-    two_year_forward_pe: Optional[float]
-    ttm_eps_growth: Optional[float]
-    current_year_eps_growth: Optional[float]
-    next_year_eps_growth: Optional[float]
-    ttm_revenue_growth: Optional[float]
-    current_year_revenue_growth: Optional[float]
-    next_year_revenue_growth: Optional[float]
-    gross_margin: Optional[float]
-    net_margin: Optional[float]
-    ttm_ps_ratio: Optional[float]
-    forward_ps_ratio: Optional[float]
-    # Stock info fields removed - use /info endpoint instead
-    ticker: Optional[str]
+    # Mandatory Metrics - PE Ratios
+    ttm_pe: Optional[float] = None
+    forward_pe: Optional[float] = None
+    two_year_forward_pe: Optional[float] = None
+    # Mandatory Metrics - EPS Growth
+    ttm_eps_growth: Optional[float] = None
+    current_year_eps_growth: Optional[float] = None
+    next_year_eps_growth: Optional[float] = None
+    # Mandatory Metrics - Revenue Growth
+    ttm_revenue_growth: Optional[float] = None
+    current_year_revenue_growth: Optional[float] = None
+    next_year_revenue_growth: Optional[float] = None
+    # Mandatory Metrics - Margins
+    gross_margin: Optional[float] = None
+    net_margin: Optional[float] = None
+    # Mandatory Metrics - P/S Ratios
+    ttm_ps_ratio: Optional[float] = None
+    forward_ps_ratio: Optional[float] = None
+    # Advanced Metrics - EPS Growth
+    last_year_eps_growth: Optional[float] = None
+    ttm_vs_ntm_eps_growth: Optional[float] = None
+    current_quarter_eps_growth_vs_previous_year: Optional[float] = None
+    two_year_stack_exp_eps_growth: Optional[float] = None
+    # Advanced Metrics - Revenue Growth
+    last_year_revenue_growth: Optional[float] = None
+    ttm_vs_ntm_revenue_growth: Optional[float] = None
+    current_quarter_revenue_growth_vs_previous_year: Optional[float] = None
+    two_year_stack_exp_revenue_growth: Optional[float] = None
+    # Advanced Metrics - Valuation Ratios
+    peg_ratio: Optional[float] = None
+    return_on_equity: Optional[float] = None
+    price_to_book: Optional[float] = None
+    price_to_free_cash_flow: Optional[float] = None
+    free_cash_flow_yield: Optional[float] = None
+    # Advanced Metrics - Dividends
+    dividend_yield: Optional[float] = None
+    dividend_payout_ratio: Optional[float] = None
 
 
 class ProjectionResponse(BaseModel):
     """Model for the projection response"""
     success: bool
-    ticker: str
     current_year: int
     base_data: Dict[str, float]
     projections: Dict[int, Dict[str, float]]
@@ -36,7 +57,6 @@ class ProjectionResponse(BaseModel):
 
 class ProjectionBaseDataResponse(BaseModel):
     """Model for projection base data response"""
-    ticker: str
     # Stock info fields removed - use /info endpoint instead
     revenue: Optional[int] = None
     net_income: Optional[int] = None
@@ -112,10 +132,15 @@ class FinancialDataResponse(BaseModel):
 
 class ComprehensiveFinancialResponse(BaseModel):
     """Model for comprehensive financial data including historical and analyst estimates"""
-    ticker: str
     # Stock info fields removed - use /info endpoint instead
     historical: List[FinancialDataResponse]
     estimates: List[AnalystEstimateResponse]
+
+
+class IncomeStatementResponse(BaseModel):
+    """Model for income statement data from scraped source"""
+    years: List[int]
+    metrics: Dict[str, List[Optional[Any]]]
 
 
 class ErrorResponse(BaseModel):
@@ -142,3 +167,4 @@ class SubscriptionsResponse(BaseModel):
     subscriptions: List[Dict[str, Any]]
     count: int
     has_active_subscription: bool
+

@@ -9,8 +9,10 @@ from services.utils import calculate_financial_projections
 from core.auth import verify_access
 from services.validators import validate_ticker_or_raise, validate_projection_inputs
 from services.projection_service import ProjectionService
+from services.supabase_service import supabase_service
 from constants.constants import FMP_API_KEY
 from core.rate_limit import user_limiter, global_limiter, PROJECTIONS_USER_LIMIT, PROJECTIONS_GLOBAL_LIMIT
+from core.deprecation import add_deprecation_headers
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -74,6 +76,8 @@ async def create_financial_projections(
                 }
             )
         
+        # Remove ticker if present (not needed in response, already in query param)
+        result.pop('ticker', None)
         response_data = ProjectionResponse(**result)
         return JSONResponse(content=response_data.dict())
     
@@ -104,7 +108,56 @@ async def create_financial_projections(
 @global_limiter.limit(PROJECTIONS_GLOBAL_LIMIT)
 def get_projection_base_data(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
     """
-    Get base data for financial projections including current stock metrics.
+    Get projections data from cached Supabase data.
+    
+    Args:
+        ticker: Stock ticker symbol (e.g., META)
+        
+    Returns:
+        ProjectionBaseDataResponse with data from projections column
+        
+    Raises:
+        404: If ticker not found in cache (cache miss)
+        500: If Supabase connection error
+    """
+    try:
+        stock_data = supabase_service.get_stock_data(ticker)
+        
+        if not stock_data:
+            logger.info(f"Cache miss for ticker {ticker} in /projections")
+            raise HTTPException(status_code=404, detail=f"Projections data not found for ticker {ticker}. Cache miss - data not yet scraped.")
+        
+        projections = stock_data.get('projections')
+        
+        if not projections:
+            logger.warning(f"No projections data found for ticker {ticker}")
+            raise HTTPException(status_code=404, detail=f"Projections data not available for ticker {ticker}")
+        
+        # Map projections to ProjectionBaseDataResponse format
+        projections_dict = dict(projections) if isinstance(projections, dict) else {}
+        
+        # Remove ticker if present (not needed in response)
+        projections_dict.pop('ticker', None)
+        
+        return JSONResponse(content=projections_dict)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in /projections endpoint for {ticker}: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Error fetching projections data: {str(e)}")
+
+
+@router.get("/v1/projections", response_model=ProjectionBaseDataResponse, deprecated=True)
+@user_limiter.limit(PROJECTIONS_USER_LIMIT)
+@global_limiter.limit(PROJECTIONS_GLOBAL_LIMIT)
+def get_projection_base_data_v1(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
+    """
+    [DEPRECATED] Get base data for financial projections including current stock metrics.
+    
+    This endpoint is deprecated. Use /projections instead, which uses cached Supabase data.
     
     Args:
         ticker: Stock ticker symbol (e.g., CELH, AAPL)
@@ -126,7 +179,6 @@ def get_projection_base_data(request: Request, ticker: str = Query(..., descript
             net_income_margin = int(round((data['net_income'] / data['revenue']) * 100))
         
         response_data = ProjectionBaseDataResponse(
-            ticker=data['ticker'],
             # Stock info fields removed - use /info endpoint instead
             revenue=data.get('revenue'),
             net_income=data.get('net_income'),
@@ -134,7 +186,8 @@ def get_projection_base_data(request: Request, ticker: str = Query(..., descript
             net_income_margin=net_income_margin,
             data_year=data['data_year']
         )
-        return JSONResponse(content=response_data.dict())
+        response = JSONResponse(content=response_data.dict())
+        return add_deprecation_headers(response, "/projections")
     
     except ValueError as e:
         # ValueError raised by FMPService when ticker not found in mocks
