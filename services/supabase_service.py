@@ -268,6 +268,28 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Error updating subscription status for user {clerk_user_id}: {str(e)}")
             raise
+    
+    def get_stock_data(self, ticker: str) -> Optional[Dict]:
+        """
+        Get stock data from stock_data table by ticker.
+        
+        Args:
+            ticker: Stock ticker symbol (e.g., 'META')
+            
+        Returns:
+            Dict with stock_data row or None if not found
+        """
+        try:
+            response = self.client.table('stock_data').select('*').eq('ticker', ticker.upper()).single().execute()
+            if response.data:
+                return response.data
+            return None
+        except Exception as e:
+            # Handle case where no row found (single() raises exception)
+            if 'No rows found' in str(e) or 'PGRST116' in str(e):
+                return None
+            logger.error(f"Error fetching stock data for {ticker}: {str(e)}")
+            raise
 
 
 # Create singleton instance

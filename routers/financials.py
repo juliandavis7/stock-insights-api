@@ -5,12 +5,14 @@ from datetime import datetime
 from fastapi import APIRouter, Query, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 
-from models import FinancialStatementResponse, ComprehensiveFinancialResponse, FinancialDataResponse, AnalystEstimateResponse
+from models import FinancialStatementResponse, ComprehensiveFinancialResponse, FinancialDataResponse, AnalystEstimateResponse, IncomeStatementResponse
 from core.auth import verify_access
 from services.validators import validate_ticker_or_raise
 from services.yfinance_service import YFinanceService
 from services.fmp_service import FMPService
+from services.supabase_service import supabase_service
 from core.rate_limit import user_limiter, global_limiter, limiter, FINANCIALS_USER_LIMIT, FINANCIALS_GLOBAL_LIMIT, MOCK_USER_LIMIT
+from core.deprecation import add_deprecation_headers
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -169,12 +171,94 @@ def get_financial_statements(request: Request, ticker: str = Query(..., descript
         return JSONResponse(content=mock_data["AAPL"])
 
 
-@router.get("/financials", response_model=ComprehensiveFinancialResponse)
+@router.get("/financials", response_model=IncomeStatementResponse)
 @user_limiter.limit(FINANCIALS_USER_LIMIT)
 @global_limiter.limit(FINANCIALS_GLOBAL_LIMIT)
 def get_financials(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
     """
-    Get comprehensive financial data including historical data and analyst estimates.
+    Get financials data from cached Supabase data.
+    
+    Args:
+        ticker: Stock ticker symbol (e.g., META)
+        
+    Returns:
+        IncomeStatementResponse with data from income_statement column
+        
+    Raises:
+        404: If ticker not found in cache (cache miss)
+        500: If Supabase connection error
+    """
+    try:
+        stock_data = supabase_service.get_stock_data(ticker)
+        
+        if not stock_data:
+            logger.info(f"Cache miss for ticker {ticker} in /financials")
+            raise HTTPException(status_code=404, detail=f"Financials data not found for ticker {ticker}. Cache miss - data not yet scraped.")
+        
+        income_statement = stock_data.get('income_statement')
+        
+        if not income_statement:
+            logger.warning(f"No income_statement data found for ticker {ticker}")
+            raise HTTPException(status_code=404, detail=f"Financials data not available for ticker {ticker}")
+        
+        # Map income_statement to IncomeStatementResponse format
+        income_dict = dict(income_statement) if isinstance(income_statement, dict) else {}
+        
+        # Remove ticker if present (not needed in response)
+        income_dict.pop('ticker', None)
+        
+        # Reorder metrics to match the order shown in the UI screenshot:
+        # 1. total_revenue, 2. cost_of_revenue, 3. gross_profit, 4. sga, 5. rnd,
+        # 6. total_opex, 7. operating_income, 8. net_income, 9. basic_eps, 10. diluted_eps
+        if 'metrics' in income_dict and isinstance(income_dict['metrics'], dict):
+            metrics_order = [
+                'total_revenue',
+                'cost_of_revenue',
+                'gross_profit',
+                'sga',
+                'rnd',
+                'total_opex',
+                'operating_income',
+                'net_income',
+                'basic_eps',
+                'diluted_eps'
+            ]
+            
+            # Create ordered metrics dictionary
+            ordered_metrics = {}
+            metrics_dict = income_dict['metrics']
+            
+            # Add metrics in the specified order
+            for key in metrics_order:
+                if key in metrics_dict:
+                    ordered_metrics[key] = metrics_dict[key]
+            
+            # Add any remaining metrics that weren't in the order list
+            for key, value in metrics_dict.items():
+                if key not in ordered_metrics:
+                    ordered_metrics[key] = value
+            
+            income_dict['metrics'] = ordered_metrics
+        
+        return JSONResponse(content=income_dict)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in /financials endpoint for {ticker}: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Error fetching financials data: {str(e)}")
+
+
+@router.get("/v1/financials", response_model=ComprehensiveFinancialResponse, deprecated=True)
+@user_limiter.limit(FINANCIALS_USER_LIMIT)
+@global_limiter.limit(FINANCIALS_GLOBAL_LIMIT)
+def get_financials_v1(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
+    """
+    [DEPRECATED] Get comprehensive financial data including historical data and analyst estimates.
+    
+    This endpoint is deprecated. Use /financials instead, which uses cached Supabase data.
     Returns structured financial data with key metrics for each year plus future estimates.
     
     Args:
@@ -346,11 +430,11 @@ def get_financials(request: Request, ticker: str = Query(..., description="Stock
             )
         
         response_data = ComprehensiveFinancialResponse(
-            ticker=ticker.upper(),
             historical=historical_data,
             estimates=estimates_data
         )
-        return JSONResponse(content=response_data.dict())
+        response = JSONResponse(content=response_data.dict())
+        return add_deprecation_headers(response, "/financials")
     
     except ValueError as e:
         # ValueError raised by FMPService when ticker not found in mocks

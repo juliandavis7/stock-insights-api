@@ -176,7 +176,7 @@ class YFinanceService:
     
     def get_shares_outstanding(self, ticker: str) -> Optional[float]:
         """
-        Get shares outstanding.
+        Get shares outstanding, preferring impliedSharesOutstanding.
         
         Args:
             ticker: Stock ticker symbol
@@ -188,6 +188,12 @@ class YFinanceService:
             stock = yf.Ticker(ticker)
             info = stock.info
             
+            # Prefer impliedSharesOutstanding, fallback to sharesOutstanding
+            shares = info.get('impliedSharesOutstanding')
+            if shares is not None:
+                return float(shares)
+            
+            # Fallback to sharesOutstanding
             shares = info.get('sharesOutstanding')
             if shares is not None:
                 return float(shares)
