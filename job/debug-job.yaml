@@ -1,0 +1,62 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: stock-scraper-debug
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          timeoutSeconds: "300"
+          containers:
+            - image: gcr.io/stock-insights-479318/stock-scraper-job
+              resources:
+                limits:
+                  memory: "512Mi"
+                  cpu: "1"
+              # Override command to just print debug info
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  echo "=== DEBUG JOB STARTED ==="
+                  echo "Date: $(date)"
+                  echo "Hostname: $(hostname)"
+                  echo ""
+                  echo "=== ENVIRONMENT VARIABLES ==="
+                  echo "SUPABASE_URL set: $(if [ -n \"$SUPABASE_URL\" ]; then echo YES; else echo NO; fi)"
+                  echo "SUPABASE_SERVICE_ROLE_KEY set: $(if [ -n \"$SUPABASE_SERVICE_ROLE_KEY\" ]; then echo YES - length $(echo -n \"$SUPABASE_SERVICE_ROLE_KEY\" | wc -c); else echo NO; fi)"
+                  echo "BASE_URL set: $(if [ -n \"$BASE_URL\" ]; then echo YES - $BASE_URL; else echo NO; fi)"
+                  echo "STOCK_USER set: $(if [ -n \"$STOCK_USER\" ]; then echo YES; else echo NO; fi)"
+                  echo "STOCK_PASS set: $(if [ -n \"$STOCK_PASS\" ]; then echo YES; else echo NO; fi)"
+                  echo ""
+                  echo "=== PYTHON CHECK ==="
+                  python3 --version
+                  echo ""
+                  echo "=== DEBUG JOB COMPLETE ==="
+              env:
+                - name: SUPABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: SUPABASE_URL
+                      key: "latest"
+                - name: SUPABASE_SERVICE_ROLE_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: SUPABASE_SERVICE_ROLE_KEY
+                      key: "latest"
+                - name: BASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: BASE_URL
+                      key: "latest"
+                - name: STOCK_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: STOCK_USER
+                      key: "latest"
+                - name: STOCK_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: STOCK_PASS
+                      key: "latest"
+

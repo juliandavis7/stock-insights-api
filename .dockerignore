@@ -52,3 +52,6 @@ Thumbs.db
 *.bak
 
 key.json
+
+# Mock data (not needed in production)
+mocks/

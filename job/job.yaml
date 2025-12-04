@@ -1,0 +1,42 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: stock-scraper-job
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          timeoutSeconds: "7200"
+          containers:
+            - image: gcr.io/stock-insights-479318/stock-scraper-job
+              resources:
+                limits:
+                  memory: "4Gi"
+                  cpu: "2"
+              env:
+                - name: SUPABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: SUPABASE_URL
+                      key: "latest"
+                - name: SUPABASE_SERVICE_ROLE_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: SUPABASE_SERVICE_ROLE_KEY
+                      key: "latest"
+                - name: BASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: BASE_URL
+                      key: "latest"
+                - name: STOCK_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: STOCK_USER
+                      key: "latest"
+                - name: STOCK_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: STOCK_PASS
+                      key: "latest"
