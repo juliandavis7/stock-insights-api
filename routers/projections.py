@@ -1,7 +1,7 @@
 """Projections endpoint router."""
 import logging
 from typing import Dict
-from fastapi import APIRouter, Query, Depends, Request, HTTPException
+from fastapi import APIRouter, Query, Depends, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from models import ProjectionRequest, ProjectionResponse, ProjectionBaseDataResponse
@@ -9,7 +9,7 @@ from services.utils import calculate_financial_projections
 from core.auth import verify_access
 from services.validators import validate_ticker_or_raise, validate_projection_inputs
 from services.projection_service import ProjectionService
-from services.supabase_service import supabase_service
+from services.scraping_utils import ensure_data_scraped, scrape_remaining_pages_background
 from constants.constants import FMP_API_KEY
 from core.rate_limit import user_limiter, global_limiter, PROJECTIONS_USER_LIMIT, PROJECTIONS_GLOBAL_LIMIT
 from core.deprecation import add_deprecation_headers
@@ -106,9 +106,15 @@ async def create_financial_projections(
 @router.get("/projections", response_model=ProjectionBaseDataResponse)
 @user_limiter.limit(PROJECTIONS_USER_LIMIT)
 @global_limiter.limit(PROJECTIONS_GLOBAL_LIMIT)
-def get_projection_base_data(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
+async def get_projection_base_data(
+    request: Request,
+    ticker: str = Query(..., description="Stock ticker symbol"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    user: Dict = Depends(verify_access)
+):
     """
     Get projections data from cached Supabase data.
+    If data is not found, automatically scrapes with priority='projections' and returns the data.
     
     Args:
         ticker: Stock ticker symbol (e.g., META)
@@ -117,24 +123,25 @@ def get_projection_base_data(request: Request, ticker: str = Query(..., descript
         ProjectionBaseDataResponse with data from projections column
         
     Raises:
-        404: If ticker not found in cache (cache miss)
-        500: If Supabase connection error
+        500: If scraping or Supabase connection error
     """
     try:
-        stock_data = supabase_service.get_stock_data(ticker)
+        # Normalize ticker format
+        ticker = ticker.upper()
         
-        if not stock_data:
-            logger.info(f"Cache miss for ticker {ticker} in /projections")
-            raise HTTPException(status_code=404, detail=f"Projections data not found for ticker {ticker}. Cache miss - data not yet scraped.")
+        # Ensure data is scraped using common utility
+        projections_dict, was_scraped = await ensure_data_scraped(
+            ticker=ticker,
+            priority_page='projections',
+            data_key='projections',
+            remaining_pages=['search', 'income_statement']
+        )
         
-        projections = stock_data.get('projections')
-        
-        if not projections:
-            logger.warning(f"No projections data found for ticker {ticker}")
-            raise HTTPException(status_code=404, detail=f"Projections data not available for ticker {ticker}")
-        
-        # Map projections to ProjectionBaseDataResponse format
-        projections_dict = dict(projections) if isinstance(projections, dict) else {}
+        # Queue remaining pages as background task if we just scraped
+        if was_scraped:
+            remaining_pages = ['search', 'income_statement']
+            logger.info(f"Queueing background task to scrape remaining pages for {ticker}: {', '.join(remaining_pages)}")
+            background_tasks.add_task(scrape_remaining_pages_background, ticker, remaining_pages)
         
         # Remove ticker if present (not needed in response)
         projections_dict.pop('ticker', None)
@@ -143,7 +150,20 @@ def get_projection_base_data(request: Request, ticker: str = Query(..., descript
         
     except HTTPException:
         raise
+    except ValueError as e:
+        # Handle validation errors from scraper (e.g., invalid ticker)
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['not found', 'invalid', 'could not extract', 'not available']):
+            logger.error(f"Ticker {ticker} validation error: {e}")
+            validate_ticker_or_raise(ticker)
+        raise HTTPException(status_code=400, detail=f"Error fetching projections data: {str(e)}")
     except Exception as e:
+        # Check if it's a ticker not found error
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['not found', 'invalid symbol', 'unknown symbol', 'invalid ticker', 'could not extract']):
+            logger.error(f"Ticker {ticker} not found: {e}")
+            validate_ticker_or_raise(ticker)
+        
         logger.error(f"Error in /projections endpoint for {ticker}: {e}")
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")

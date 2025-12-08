@@ -286,7 +286,14 @@ class SupabaseService:
             return None
         except Exception as e:
             # Handle case where no row found (single() raises exception)
-            if 'No rows found' in str(e) or 'PGRST116' in str(e):
+            # Also handle 406 Not Acceptable errors (can happen with certain Supabase configurations)
+            error_str = str(e)
+            if ('No rows found' in error_str or 
+                'PGRST116' in error_str or
+                '406' in error_str or
+                'Not Acceptable' in error_str or
+                'Cannot coerce the result to a single JSON object' in error_str or
+                'contains 0 rows' in error_str.lower()):
                 return None
             logger.error(f"Error fetching stock data for {ticker}: {str(e)}")
             raise

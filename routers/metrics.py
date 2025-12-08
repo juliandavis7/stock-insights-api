@@ -2,7 +2,7 @@
 import logging
 from typing import Dict
 from collections import OrderedDict
-from fastapi import APIRouter, Query, Depends, Request, HTTPException
+from fastapi import APIRouter, Query, Depends, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from models import MetricsResponse
@@ -10,6 +10,7 @@ from services.utils import get_metrics
 from core.auth import verify_access
 from services.validators import validate_ticker_or_raise
 from services.supabase_service import supabase_service
+from services.scraping_utils import ensure_data_scraped, scrape_remaining_pages_background
 from core.rate_limit import user_limiter, global_limiter, METRICS_USER_LIMIT, METRICS_GLOBAL_LIMIT
 from core.deprecation import add_deprecation_headers
 
@@ -84,12 +85,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+
+
 @router.get("/metrics", response_model=MetricsResponse)
 @user_limiter.limit(METRICS_USER_LIMIT)
 @global_limiter.limit(METRICS_GLOBAL_LIMIT)
-def metrics(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
+async def metrics(
+    request: Request,
+    ticker: str = Query(..., description="Stock ticker symbol"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    user: Dict = Depends(verify_access)
+):
     """
     Get stock metrics from cached Supabase data.
+    If data is not found, automatically scrapes with priority='search' and returns the data.
     
     Args:
         ticker: Stock ticker symbol (e.g., META)
@@ -98,24 +107,25 @@ def metrics(request: Request, ticker: str = Query(..., description="Stock ticker
         MetricsResponse with data from search_metrics column
         
     Raises:
-        404: If ticker not found in cache (cache miss)
-        500: If Supabase connection error
+        500: If scraping or Supabase connection error
     """
     try:
-        stock_data = supabase_service.get_stock_data(ticker)
+        # Normalize ticker format
+        ticker = ticker.upper()
         
-        if not stock_data:
-            logger.info(f"Cache miss for ticker {ticker} in /metrics")
-            raise HTTPException(status_code=404, detail=f"Metrics data not found for ticker {ticker}. Cache miss - data not yet scraped.")
+        # Ensure data is scraped using common utility
+        metrics_dict, was_scraped = await ensure_data_scraped(
+            ticker=ticker,
+            priority_page='search',
+            data_key='search_metrics',
+            remaining_pages=['income_statement', 'projections']
+        )
         
-        search_metrics = stock_data.get('search_metrics')
-        
-        if not search_metrics:
-            logger.warning(f"No search_metrics data found for ticker {ticker}")
-            raise HTTPException(status_code=404, detail=f"Metrics data not available for ticker {ticker}")
-        
-        # Map search_metrics to MetricsResponse format
-        metrics_dict = dict(search_metrics) if isinstance(search_metrics, dict) else {}
+        # Queue remaining pages as background task if we just scraped
+        if was_scraped:
+            remaining_pages = ['income_statement', 'projections']
+            logger.info(f"Queueing background task to scrape remaining pages for {ticker}: {', '.join(remaining_pages)}")
+            background_tasks.add_task(scrape_remaining_pages_background, ticker, remaining_pages)
         
         # Remove ticker if present (not needed in response)
         metrics_dict.pop('ticker', None)
@@ -127,7 +137,20 @@ def metrics(request: Request, ticker: str = Query(..., description="Stock ticker
         
     except HTTPException:
         raise
+    except ValueError as e:
+        # Handle validation errors from scraper (e.g., invalid ticker)
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['not found', 'invalid', 'could not extract', 'not available']):
+            logger.error(f"Ticker {ticker} validation error: {e}")
+            validate_ticker_or_raise(ticker)
+        raise HTTPException(status_code=400, detail=f"Error fetching metrics data: {str(e)}")
     except Exception as e:
+        # Check if it's a ticker not found error
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['not found', 'invalid symbol', 'unknown symbol', 'invalid ticker', 'could not extract']):
+            logger.error(f"Ticker {ticker} not found: {e}")
+            validate_ticker_or_raise(ticker)
+        
         logger.error(f"Error in /metrics endpoint for {ticker}: {e}")
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")
