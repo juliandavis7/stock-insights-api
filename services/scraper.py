@@ -16,7 +16,7 @@ from playwright.async_api import async_playwright
 import yfinance as yf
 
 from core.supabase_client import get_supabase_client
-from job.validation import validate_stock_data
+from job.validation import validate_stock_data, EXPECTED_SEARCH_METRICS, EXPECTED_PROJECTIONS_METRICS
 
 # Load environment variables
 load_dotenv()
@@ -27,80 +27,120 @@ BASE_URL = os.getenv("BASE_URL", "").rstrip('/')
 
 def get_last_earnings_date(ticker):
     """
-    Get the most recent earnings date for a stock using yfinance.
+    Get the most recent PAST earnings announcement date for a stock using yfinance.
+    
+    Tries multiple methods:
+    1. earnings_dates property (requires lxml) - contains historical announcement dates
+    2. earningsDate from info dict
+    3. mostRecentQuarter (fallback - this is quarter end, not announcement date)
     
     Args:
         ticker: Stock ticker symbol
         
     Returns:
-        datetime object representing the last earnings date, or None if not available
+        datetime object representing the last earnings announcement date, or None if not available
     """
     try:
         stock = yf.Ticker(ticker)
+        now = datetime.now()
         
-        # Try multiple methods to get earnings date
-        # Method 1: Try calendar (can be DataFrame or dict)
+        # Method 1: Try earnings_dates property (most accurate - contains historical dates)
+        # This requires lxml to be installed, but provides actual announcement dates
         try:
-            calendar = stock.calendar
-            if calendar is not None:
-                # Check if calendar is a DataFrame
-                if hasattr(calendar, 'empty') and not calendar.empty:
-                    # Calendar is a DataFrame, check for earnings dates
-                    if 'Earnings Date' in calendar.columns:
-                        earnings_dates = calendar['Earnings Date'].dropna()
-                        if len(earnings_dates) > 0:
-                            # Get the most recent earnings date
-                            last_date = earnings_dates.iloc[0]
-                            if isinstance(last_date, str):
-                                # Parse string date
-                                return datetime.fromisoformat(last_date.replace('Z', '+00:00'))
-                            elif hasattr(last_date, 'to_pydatetime'):
-                                return last_date.to_pydatetime()
-                # Check if calendar is a dict
-                elif isinstance(calendar, dict):
-                    # Look for earnings date in dict
-                    if 'Earnings Date' in calendar:
-                        earnings_date = calendar['Earnings Date']
-                        if earnings_date:
-                            if isinstance(earnings_date, list) and len(earnings_date) > 0:
-                                earnings_date = earnings_date[0]
-                            if isinstance(earnings_date, str):
-                                try:
-                                    return datetime.fromisoformat(earnings_date.replace('Z', '+00:00'))
-                                except:
-                                    pass
+            earnings_dates_df = stock.earnings_dates
+            if earnings_dates_df is not None and not earnings_dates_df.empty:
+                # earnings_dates is a DataFrame with dates as index
+                # Get all dates that are in the past
+                past_dates = []
+                for date_idx in earnings_dates_df.index:
+                    try:
+                        # Convert pandas Timestamp to datetime
+                        if hasattr(date_idx, 'to_pydatetime'):
+                            date_obj = date_idx.to_pydatetime()
+                        elif hasattr(date_idx, 'date'):
+                            date_obj = datetime.combine(date_idx.date(), datetime.min.time())
+                        else:
+                            continue
+                        
+                        date_naive = date_obj.replace(tzinfo=None) if date_obj.tzinfo else date_obj
+                        if date_naive <= now:
+                            past_dates.append(date_naive)
+                    except Exception as e:
+                        continue
+                
+                if past_dates:
+                    # Return the most recent past date
+                    return max(past_dates)
+        except ImportError as e:
+            # lxml not installed - skip this method
+            pass
         except Exception as e:
-            print(f"⚠️ Could not get earnings date from calendar: {e}")
+            # Other errors (API issues, etc.) - try next method
+            pass
         
-        # Method 2: Try info dict
+        # Method 2: Try earningsDate from info (may be past or future, check both)
         try:
             info = stock.info
-            if info:
-                # Check for various earnings date fields
-                earnings_fields = [
-                    'mostRecentQuarter',
-                    'earningsQuarterlyGrowth',
-                    'earningsDate',
-                    'exDividendDate'
-                ]
-                for field in earnings_fields:
-                    if field in info and info[field]:
-                        date_value = info[field]
-                        if isinstance(date_value, (int, float)):
-                            # Unix timestamp
-                            return datetime.fromtimestamp(date_value)
-                        elif isinstance(date_value, str):
-                            try:
-                                return datetime.fromisoformat(date_value.replace('Z', '+00:00'))
-                            except:
+            if info and 'earningsDate' in info:
+                earnings_date = info['earningsDate']
+                if earnings_date:
+                    try:
+                        if isinstance(earnings_date, (int, float)):
+                            date_obj = datetime.fromtimestamp(earnings_date)
+                        elif isinstance(earnings_date, str):
+                            # Handle list format like "[timestamp1, timestamp2]"
+                            if earnings_date.startswith('['):
+                                import json
+                                timestamps = json.loads(earnings_date)
+                                # Try to find a past date
+                                for ts in timestamps:
+                                    if isinstance(ts, (int, float)):
+                                        date_obj = datetime.fromtimestamp(ts)
+                                        date_naive = date_obj.replace(tzinfo=None) if date_obj.tzinfo else date_obj
+                                        if date_naive <= now:
+                                            return date_naive
+                                # No past date found in list, skip to next method
                                 pass
+                            else:
+                                date_obj = datetime.fromisoformat(earnings_date.replace('Z', '+00:00'))
+                        else:
+                            return None
+                        
+                        date_naive = date_obj.replace(tzinfo=None) if date_obj.tzinfo else date_obj
+                        # Only return if it's in the past
+                        if date_naive <= now:
+                            return date_naive
+                    except Exception as e:
+                        pass
         except Exception as e:
-            print(f"⚠️ Could not get earnings date from info: {e}")
+            pass
         
-        print(f"⚠️ Could not determine last earnings date for {ticker}")
+        # Method 3: Use mostRecentQuarter as fallback (quarter end date, not announcement date)
+        # Note: This is NOT the earnings announcement date, but the quarter end date
+        # Earnings are typically announced 2-6 weeks after quarter end
+        # This is less accurate but available when earnings_dates is not accessible
+        try:
+            info = stock.info
+            if info and 'mostRecentQuarter' in info:
+                quarter_end_timestamp = info['mostRecentQuarter']
+                if quarter_end_timestamp:
+                    try:
+                        # Convert Unix timestamp to datetime
+                        date_obj = datetime.fromtimestamp(quarter_end_timestamp)
+                        date_naive = date_obj.replace(tzinfo=None) if date_obj.tzinfo else date_obj
+                        
+                        # Verify it's in the past
+                        if date_naive <= now:
+                            # Note: This is quarter end, not announcement date
+                            # Earnings are typically announced later
+                            return date_naive
+                    except Exception as e:
+                        pass
+        except Exception as e:
+            pass
+        
         return None
     except Exception as e:
-        print(f"⚠️ Error fetching earnings date for {ticker}: {e}")
         return None
 
 
@@ -136,6 +176,32 @@ def get_cached_data(ticker):
         return None
 
 
+def clean_nan_values(obj):
+    """
+    Recursively clean NaN, inf, and -inf values from dictionaries/lists, converting them to None.
+    This ensures JSON compliance when storing in Supabase.
+    
+    Args:
+        obj: Dictionary, list, or primitive value to clean
+        
+    Returns:
+        Cleaned object with NaN/inf values replaced by None
+    """
+    import math
+    
+    if isinstance(obj, dict):
+        return {key: clean_nan_values(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_nan_values(item) for item in obj]
+    elif isinstance(obj, float):
+        # Check for NaN, inf, or -inf
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    else:
+        return obj
+
+
 def upsert_stock_data(ticker, search_metrics=None, income_statement=None, projections=None):
     """
     Upsert stock data into Supabase.
@@ -155,11 +221,14 @@ def upsert_stock_data(ticker, search_metrics=None, income_statement=None, projec
         }
         
         if search_metrics is not None:
-            data['search_metrics'] = search_metrics
+            # Clean NaN values before storing
+            data['search_metrics'] = clean_nan_values(search_metrics)
         if income_statement is not None:
-            data['income_statement'] = income_statement
+            # Clean NaN values before storing
+            data['income_statement'] = clean_nan_values(income_statement)
         if projections is not None:
-            data['projections'] = projections
+            # Clean NaN values before storing
+            data['projections'] = clean_nan_values(projections)
         
         result = supabase.table('stock_data').upsert(data).execute()
         print(f"✅ Successfully cached data for {ticker}")
@@ -311,14 +380,26 @@ async def authenticate(page):
 
 def parse_number(value_str):
     """Parse a number string, handling commas, percentages, and other formatting."""
-    if not value_str or value_str == "N/A" or value_str == "-":
+    if not value_str or value_str == "-":
+        return None
+    
+    # Convert to string and strip whitespace for comparison
+    value_str = str(value_str).strip()
+    
+    # Handle special string values: NAN, N/A, TURNING PROFITABLE (case-insensitive)
+    value_str_lower = value_str.lower()
+    if value_str_lower in ['nan', 'n/a', 'turning profitable']:
         return None
     
     # Remove commas and whitespace
     cleaned = value_str.replace(",", "").replace(" ", "").strip()
     
-    # Handle Infinity values (case-insensitive, check before processing)
+    # Check again for special values after removing commas/spaces
     cleaned_lower = cleaned.lower()
+    if cleaned_lower in ['nan', 'n/a', 'turningprofitable']:
+        return None
+    
+    # Handle Infinity values (case-insensitive, check before processing)
     if cleaned_lower in ['infinity', 'inf', '-infinity', '-inf']:
         if cleaned_lower.startswith('-'):
             return float('-inf')
@@ -328,8 +409,10 @@ def parse_number(value_str):
     # Handle percentages
     if "%" in cleaned:
         cleaned = cleaned.replace("%", "")
-        # Check again for infinity after removing %
+        # Check again for special values and infinity after removing %
         cleaned_lower = cleaned.lower()
+        if cleaned_lower in ['nan', 'n/a', 'turningprofitable']:
+            return None
         if cleaned_lower in ['infinity', 'inf', '-infinity', '-inf']:
             if cleaned_lower.startswith('-'):
                 return float('-inf')
@@ -349,6 +432,11 @@ def parse_number(value_str):
     if is_negative and not cleaned.startswith('-'):
         cleaned = '-' + cleaned
     
+    # Check again for special values after removing currency symbol
+    cleaned_lower = cleaned.lower()
+    if cleaned_lower in ['nan', 'n/a', 'turningprofitable']:
+        return None
+    
     # Handle multipliers (B for billions, M for millions, K for thousands)
     multiplier = 1
     if cleaned.endswith("B"):
@@ -361,8 +449,18 @@ def parse_number(value_str):
         multiplier = 1e3
         cleaned = cleaned[:-1]
     
+    # Final check for special values before attempting float conversion
+    cleaned_lower = cleaned.lower()
+    if cleaned_lower in ['nan', 'n/a', 'turningprofitable']:
+        return None
+    
     try:
-        return float(cleaned) * multiplier
+        result = float(cleaned) * multiplier
+        # Check if result is NaN (shouldn't happen, but safety check)
+        import math
+        if math.isnan(result):
+            return None
+        return result
     except ValueError:
         return None
 
@@ -685,6 +783,11 @@ async def scrape_search_metrics(page, ticker):
     
     if len(metrics) == 0:
         raise Exception(f"Could not extract metrics for {ticker}. The page structure may have changed or the ticker may not be available.")
+    
+    # Ensure all expected metrics are present, setting missing ones to None
+    for expected_metric in EXPECTED_SEARCH_METRICS:
+        if expected_metric not in metrics:
+            metrics[expected_metric] = None
     
     return metrics
 
@@ -1550,6 +1653,11 @@ async def scrape_projections_metrics(page, ticker):
     projections["eps"] = eps
     projections["net_income_margin"] = net_income_margin
     projections["data_year"] = data_year
+    
+    # Ensure all expected projection metrics are present, setting missing ones to None
+    for expected_metric in EXPECTED_PROJECTIONS_METRICS:
+        if expected_metric not in projections:
+            projections[expected_metric] = None
     
     return projections
 

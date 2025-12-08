@@ -30,16 +30,63 @@ import os
 import traceback
 import json
 import logging
+import time
 from datetime import datetime
 from typing import List
 
-# Configure logging immediately for GCP Cloud Logging
-# Cloud Run Jobs automatically captures stdout/stderr
+
+class SequentialCloudLoggingFormatter(logging.Formatter):
+    """
+    Formatter that outputs JSON for Cloud Logging with a sequence number.
+    Cloud Logging will use the sequence to maintain proper log order.
+    """
+    _sequence = 0
+    _start_time = time.time()
+    
+    def format(self, record):
+        SequentialCloudLoggingFormatter._sequence += 1
+        
+        # Calculate elapsed time in microseconds for sub-second ordering
+        elapsed_us = int((time.time() - self._start_time) * 1_000_000)
+        
+        log_entry = {
+            "severity": record.levelname,
+            "message": record.getMessage(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "logging.googleapis.com/labels": {
+                "sequence": str(SequentialCloudLoggingFormatter._sequence).zfill(8),
+                "elapsed_us": str(elapsed_us).zfill(12)
+            }
+        }
+        
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+            
+        return json.dumps(log_entry)
+
+
+class LocalFormatter(logging.Formatter):
+    """Standard formatter for local development (human-readable)."""
+    def format(self, record):
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        return f"{timestamp} [{record.levelname}] {record.getMessage()}"
+
+
+# Detect if running in Cloud Run (GCP sets this env var)
+is_cloud_run = os.getenv('K_SERVICE') is not None or os.getenv('CLOUD_RUN_JOB') is not None
+
+# Configure logging for GCP Cloud Logging or local development
+handler = logging.StreamHandler(sys.stdout)
+if is_cloud_run:
+    # Use JSON formatter for Cloud Run (proper sequencing)
+    handler.setFormatter(SequentialCloudLoggingFormatter())
+else:
+    # Use human-readable format for local development
+    handler.setFormatter(LocalFormatter())
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[logging.StreamHandler(sys.stdout)]  # Explicitly use stdout
+    handlers=[handler]
 )
 logger = logging.getLogger(__name__)
 

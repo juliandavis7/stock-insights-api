@@ -41,7 +41,8 @@ class FMPDataFetcher:
                 'sector': profile.get('sector', 'Unknown'),
                 'industry': profile.get('industry', 'Unknown'),
                 'current_price': profile.get('price'),
-                'market_cap': profile.get('mktCap'),
+                # FMP API returns 'marketCap' (camelCase), but mocks use 'mktCap' - support both
+                'market_cap': profile.get('marketCap') or profile.get('mktCap'),
                 'enterprise_value': profile.get('enterpriseValue'),
                 'shares_outstanding': profile.get('sharesOutstanding'),
                 'total_revenue': current_data.get('revenue') if current_data else None,
