@@ -159,13 +159,58 @@ class YFinanceService:
             stock = yf.Ticker(ticker)
             info = stock.info
             
+            # Check if info is empty or invalid
+            if not info or not info.get('symbol'):
+                logger.warning(f"Invalid or empty stock info for {ticker}")
+                # Try fast_info as fallback
+                try:
+                    fast_info = stock.fast_info
+                    if fast_info and hasattr(fast_info, 'lastPrice'):
+                        price = fast_info.lastPrice
+                        if price is not None:
+                            return float(price)
+                except:
+                    pass
+                
+                # Try getting from history
+                try:
+                    hist = stock.history(period="1d")
+                    if not hist.empty and 'Close' in hist.columns:
+                        price = hist['Close'].iloc[-1]
+                        if price is not None:
+                            return float(price)
+                except:
+                    pass
+                
+                return None
+            
             # Try multiple price fields
-            price_fields = ['currentPrice', 'regularMarketPrice', 'previousClose']
+            price_fields = ['currentPrice', 'regularMarketPrice', 'previousClose', 'regularMarketPreviousClose']
             
             for field in price_fields:
                 price = info.get(field)
                 if price is not None:
                     return float(price)
+            
+            # Try fast_info as fallback
+            try:
+                fast_info = stock.fast_info
+                if fast_info and hasattr(fast_info, 'lastPrice'):
+                    price = fast_info.lastPrice
+                    if price is not None:
+                        return float(price)
+            except:
+                pass
+            
+            # Try getting from history as last resort
+            try:
+                hist = stock.history(period="1d")
+                if not hist.empty and 'Close' in hist.columns:
+                    price = hist['Close'].iloc[-1]
+                    if price is not None:
+                        return float(price)
+            except:
+                pass
             
             logger.warning(f"No current price available for {ticker}")
             return None

@@ -374,9 +374,9 @@ class FMPService:
                 return mock_data[0]
             return None
         
-        # Use live API
+        # Use live API - use /stable endpoint with query parameter format
         try:
-            url = f"{self.base_url_v3}/profile/{ticker}?apikey={self.api_key}"
+            url = f"{self.base_url_stable}/profile?symbol={ticker}&apikey={self.api_key}"
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
