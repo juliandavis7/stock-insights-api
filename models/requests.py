@@ -57,3 +57,18 @@ class ProjectionRequest(BaseModel):
             raise ValueError("At least one projection year must be provided")
         
         return v
+
+
+class ScenarioData(BaseModel):
+    """Model for a single scenario (bear_case, base_case, or bull_case)"""
+    revenue_growth: list[float] = Field(..., description="Revenue growth list (4 values for 2026-2029)")
+    net_income_growth: list[float] = Field(..., description="Net income growth list (4 values for 2026-2029)")
+    pe_low_est: list[float] = Field(..., description="Low PE ratio estimate list (5 values for 2025-2029)")
+    pe_high_est: list[float] = Field(..., description="High PE ratio estimate list (5 values for 2025-2029)")
+
+
+class SavedProjectionRequest(BaseModel):
+    """Request model for saving user projection inputs with scenarios"""
+    bear_case: ScenarioData = Field(..., description="Bear case scenario")
+    base_case: ScenarioData = Field(..., description="Base case scenario")
+    bull_case: ScenarioData = Field(..., description="Bull case scenario")

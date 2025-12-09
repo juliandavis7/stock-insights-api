@@ -168,3 +168,34 @@ class SubscriptionsResponse(BaseModel):
     count: int
     has_active_subscription: bool
 
+
+class ScenarioData(BaseModel):
+    """Model for a single scenario (bear_case, base_case, or bull_case)"""
+    revenue_growth: list[float]
+    net_income_growth: list[float]
+    pe_low_est: list[float]
+    pe_high_est: list[float]
+
+
+class SavedProjectionData(BaseModel):
+    """Model for saved projection data with all scenarios"""
+    bear_case: ScenarioData
+    base_case: ScenarioData
+    bull_case: ScenarioData
+
+
+class SavedProjectionGetResponse(BaseModel):
+    """Response model for getting saved projections"""
+    data: Optional[SavedProjectionData] = None
+    updated_at: Optional[str] = None
+
+
+class SavedProjectionPostResponse(BaseModel):
+    """Response model for saving projections"""
+    message: str
+
+
+class SavedProjectionDeleteResponse(BaseModel):
+    """Response model for deleting saved projections"""
+    message: str
+

@@ -28,8 +28,8 @@ def setup_middleware(app: FastAPI):
         ],
         allow_origin_regex=r"https://stock-insights-.*\.vercel\.app",  # All Vercel preview deployments
         allow_credentials=True,
-        allow_methods=["GET", "POST"],  # Only allow necessary methods
-        allow_headers=["Content-Type", "Authorization"],  # Restrict headers
+        allow_methods=["GET", "POST", "PUT"],  # Allow all necessary methods including PUT and OPTIONS for CORS preflight
+        allow_headers=["Content-Type", "Authorization"],  # Required headers for API requests
     )
     
     # Add custom rate limit exception handler
