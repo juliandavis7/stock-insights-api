@@ -13,3 +13,4 @@ slowapi>=0.1.9
 supabase>=2.0.0
 svix>=1.0.0
 stripe>=7.0.0
+playwright>=1.40.0
