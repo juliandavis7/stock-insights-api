@@ -55,12 +55,39 @@ class YFinanceService:
                 'total_revenue': info.get('totalRevenue')
             }
             
+            # Extract exchange information
+            exchange = (
+                info.get('exchange') or 
+                info.get('exchangeShortName') or 
+                info.get('fullExchangeName') or
+                None
+            )
+            
+            # Clean up exchange name
+            if exchange:
+                exchange_clean = exchange.upper()
+                if 'NASDAQ' in exchange_clean or exchange_clean == 'NMS' or exchange_clean == 'NCM':
+                    exchange = 'NASDAQ'
+                elif 'NYSE' in exchange_clean or exchange_clean == 'NYQ':
+                    exchange = 'NYSE'
+                elif 'AMEX' in exchange_clean or exchange_clean == 'AMX':
+                    exchange = 'AMEX'
+                elif 'OTC' in exchange_clean:
+                    exchange = 'OTC'
+                else:
+                    exchange = exchange_clean
+            
+            # Extract country information
+            country = info.get('country')
+            
             # Add some additional processing
             result = {
                 'ticker': ticker.upper(),
                 'company_name': info.get('longName', 'Unknown'),
                 'sector': info.get('sector', 'Unknown'),
                 'industry': info.get('industry', 'Unknown'),
+                'exchange': exchange,
+                'country': country,
                 **extracted_metrics
             }
             

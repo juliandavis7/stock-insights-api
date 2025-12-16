@@ -8,6 +8,7 @@ from core.auth import verify_access
 from services.validators import validate_ticker_or_raise
 from services.yfinance_service import YFinanceService
 from services.fmp_service import FMPService
+from services.stock_exchange_service import get_stock_exchange_info
 from core.rate_limit import user_limiter, global_limiter, INFO_USER_LIMIT, INFO_GLOBAL_LIMIT
 
 logger = logging.getLogger(__name__)
@@ -19,15 +20,25 @@ router = APIRouter()
 @global_limiter.limit(INFO_GLOBAL_LIMIT)
 def get_info(request: Request, ticker: str = Query(..., description="Stock ticker symbol"), user: Dict = Depends(verify_access)):
     """
-    Get basic stock information including price, market cap, and shares outstanding.
+    Get basic stock information including price, market cap, shares outstanding, name, exchange, and country_code.
     
     Args:
         ticker: Stock ticker symbol (e.g., AAPL)
         
     Returns:
-        JSON with ticker, price, market_cap, and shares_outstanding
+        JSON with ticker, price, market_cap, shares_outstanding, name, exchange, and country_code
     """
     try:
+        ticker_upper = ticker.upper()
+        
+        # Get stock metadata (name, exchange, country_code) from stocks table
+        # This will fetch from yfinance and update stocks table if not found
+        stock_metadata = get_stock_exchange_info([ticker_upper])
+        metadata = stock_metadata.get(ticker_upper, {})
+        name = metadata.get('name')
+        exchange = metadata.get('exchange')
+        country_code = metadata.get('country_code')
+        
         yfinance_service = YFinanceService()
         current_price = None
         market_cap = None
@@ -100,7 +111,10 @@ def get_info(request: Request, ticker: str = Query(..., description="Stock ticke
             validate_ticker_or_raise(ticker)
         
         return JSONResponse(content={
-            "ticker": ticker.upper(),
+            "ticker": ticker_upper,
+            "name": name,
+            "exchange": exchange,
+            "country_code": country_code,
             "price": current_price,
             "market_cap": int(market_cap) if market_cap else None,
             "shares_outstanding": int(shares_outstanding) if shares_outstanding else None

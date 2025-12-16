@@ -1,6 +1,7 @@
 """FMP (Financial Modeling Prep) API service for fetching financial data."""
 
 import requests
+import httpx
 import logging
 import json
 import os
@@ -1067,3 +1068,50 @@ class FMPService:
         except Exception as e:
             logger.error(f"Unexpected error fetching annual income statement data for {ticker}: {e}")
             return None
+    
+    async def get_batch_quotes(self, tickers: str) -> List[dict]:
+        """
+        Fetch quotes for multiple tickers in a single API call (async).
+        
+        Args:
+            tickers: Comma-separated ticker symbols, e.g. "AMD,META,GOOGL"
+        
+        Returns:
+            List of quote objects with price, name, pe, etc.
+        """
+        url = f"{self.base_url_v3}/quote/{tickers}?apikey={self.api_key}"
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, timeout=10)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPError as e:
+                logger.error(f"FMP API request failed for batch quotes {tickers}: {e}")
+                return []
+            except Exception as e:
+                logger.error(f"Unexpected error fetching batch quotes for {tickers}: {e}")
+                return []
+    
+    def get_batch_quotes_sync(self, tickers: str) -> List[dict]:
+        """
+        Fetch quotes for multiple tickers in a single API call (synchronous).
+        
+        Args:
+            tickers: Comma-separated ticker symbols, e.g. "AMD,META,GOOGL"
+        
+        Returns:
+            List of quote objects with price, name, pe, etc.
+        """
+        url = f"{self.base_url_v3}/quote/{tickers}?apikey={self.api_key}"
+        
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"FMP API request failed for batch quotes {tickers}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error fetching batch quotes for {tickers}: {e}")
+            return []

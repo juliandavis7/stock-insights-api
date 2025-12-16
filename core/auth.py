@@ -162,13 +162,14 @@ auth_validator = ClerkAuthValidator()
 async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Dict:
     """
     Validates JWT token and returns user payload.
-    In local development mode (ENVIRONMENT=dev), token is required to extract user ID,
+    In local development mode (ENVIRONMENT=local), auth is bypassed entirely.
+    In dev mode (ENVIRONMENT=dev), token is required to extract user ID,
     but expired tokens are accepted.
     
     This dependency should be added to protected endpoints:
         @app.get("/protected")
         def protected_route(user: Dict = Depends(verify_token)):
-            # user contains decoded JWT payload (or mock user in dev mode)
+            # user contains decoded JWT payload (or mock user in local/dev mode)
             pass
     
     Args:
@@ -181,7 +182,16 @@ async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Dep
         HTTPException: 401 if token is missing or invalid
         HTTPException: 401 if token is expired (only in production environments)
     """
-    # Require token even in local development
+    # LOCAL mode: Bypass auth entirely
+    if ENVIRONMENT == 'local':
+        logging.info("🔓 Local mode: Bypassing authentication")
+        return {
+            'sub': 'local-dev-user',
+            'email': 'dev@localhost',
+            'environment': 'local'
+        }
+    
+    # Require token even in dev development
     if not credentials:
         logging.warning("Authentication failed: No credentials provided")
         raise HTTPException(
@@ -192,7 +202,7 @@ async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Dep
     
     token = credentials.credentials
     
-    # Local development mode: Accept expired tokens, just decode them
+    # Dev development mode: Accept expired tokens, just decode them
     if ENVIRONMENT == 'dev':
         try:
             # Decode without verification to get user ID
