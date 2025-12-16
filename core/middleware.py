@@ -28,7 +28,7 @@ def setup_middleware(app: FastAPI):
         ],
         allow_origin_regex=r"https://stock-insights-.*\.vercel\.app",  # All Vercel preview deployments
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT"],  # Allow all necessary methods including PUT and OPTIONS for CORS preflight
+        allow_methods=["GET", "POST", "PUT", "DELETE"],  # Allow all necessary methods including PUT, DELETE and OPTIONS for CORS preflight
         allow_headers=["Content-Type", "Authorization"],  # Required headers for API requests
     )
     
