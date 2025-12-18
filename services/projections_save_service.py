@@ -53,7 +53,7 @@ class ProjectionsSaveService:
             }
             
             # Check if projection already exists
-            existing_response = self.client.table('saved_projections').select(
+            existing_response = self.client.table('projections').select(
                 'id'
             ).eq('user_id', user_id).eq('ticker', ticker).execute()
             
@@ -63,7 +63,7 @@ class ProjectionsSaveService:
                     'projections': projections_data,
                     'updated_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
                 }
-                response = self.client.table('saved_projections').update(update_data).eq(
+                response = self.client.table('projections').update(update_data).eq(
                     'user_id', user_id
                 ).eq('ticker', ticker).execute()
                 logger.info(f"✅ Updated projections for user {user_id}, ticker {ticker}")
@@ -75,7 +75,7 @@ class ProjectionsSaveService:
                     'projections': projections_data,
                     'updated_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
                 }
-                response = self.client.table('saved_projections').insert(projection_data).execute()
+                response = self.client.table('projections').insert(projection_data).execute()
                 logger.info(f"✅ Created new projections for user {user_id}, ticker {ticker}")
             
         except Exception as e:
@@ -111,7 +111,7 @@ class ProjectionsSaveService:
             
             # Read from projections column (source of truth)
             # Generated columns (bear_case, base_case, bull_case) are automatically available
-            response = self.client.table('saved_projections').select(
+            response = self.client.table('projections').select(
                 'projections, updated_at'
             ).eq('user_id', user_id).eq('ticker', ticker).execute()
             
@@ -199,7 +199,7 @@ class ProjectionsSaveService:
             ticker = ticker.upper()
             
             # Check if projection exists first
-            check_response = self.client.table('saved_projections').select(
+            check_response = self.client.table('projections').select(
                 'id'
             ).eq('user_id', user_id).eq('ticker', ticker).execute()
             
@@ -208,7 +208,7 @@ class ProjectionsSaveService:
                 return False
             
             # Delete the projection
-            delete_response = self.client.table('saved_projections').delete().eq(
+            delete_response = self.client.table('projections').delete().eq(
                 'user_id', user_id
             ).eq('ticker', ticker).execute()
             

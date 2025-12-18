@@ -104,7 +104,7 @@ async def metrics(
         ticker: Stock ticker symbol (e.g., META)
         
     Returns:
-        MetricsResponse with data from search_metrics column
+        MetricsResponse with data from metrics column
         
     Raises:
         500: If scraping or Supabase connection error
@@ -117,7 +117,7 @@ async def metrics(
         metrics_dict, was_scraped = await ensure_data_scraped(
             ticker=ticker,
             priority_page='search',
-            data_key='search_metrics',
+            data_key='metrics',  # Changed from 'search_metrics' to 'metrics' in consolidated table
             remaining_pages=['income_statement', 'projections']
         )
         

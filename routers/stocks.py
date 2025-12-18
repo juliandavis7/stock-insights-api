@@ -126,10 +126,10 @@ async def get_stock_data(
                 logger.info(f"Scraping data for {ticker}...")
                 result = await scrape_stock(ticker)
                 
-                # Store in Supabase
+                # Store in Supabase (search_metrics parameter stores as 'metrics' in DB)
                 upsert_stock_data(
                     ticker=ticker,
-                    search_metrics=result.get('search'),
+                    search_metrics=result.get('search'),  # stored as 'metrics' in consolidated stocks table
                     income_statement=result.get('income_statement'),
                     projections=result.get('projections')
                 )
@@ -142,7 +142,7 @@ async def get_stock_data(
                     logger.warning(f"Returning stale cached data for {ticker} due to scraping error")
                     return JSONResponse(content={
                         "ticker": ticker,
-                        "search": cached_data.get('search_metrics'),
+                        "search": cached_data.get('metrics'),  # 'metrics' in consolidated table
                         "income_statement": cached_data.get('income_statement'),
                         "projections": cached_data.get('projections'),
                         "_from_cache": True,
@@ -157,9 +157,9 @@ async def get_stock_data(
                         }
                     )
         else:
-            # Use cached data
+            # Use cached data ('metrics' in consolidated table)
             result = {
-                "search": cached_data.get('search_metrics'),
+                "search": cached_data.get('metrics'),  # 'metrics' in consolidated table
                 "income_statement": cached_data.get('income_statement'),
                 "projections": cached_data.get('projections')
             }

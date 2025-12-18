@@ -157,7 +157,7 @@ except Exception as e:
 
 async def fetch_stock_list():
     """
-    Fetch list of stocks with full data from Supabase.
+    Fetch list of stocks with full data from consolidated Supabase stocks table.
     
     Returns:
         List of stock dictionaries with ticker and data fields
@@ -167,37 +167,18 @@ async def fetch_stock_list():
         supabase = get_supabase_client()
         logger.info("✓ Supabase client created")
         
-        # Try to fetch from a 'stocks' table first
+        # Fetch all stocks from consolidated stocks table
         try:
-            logger.info("Attempting to fetch from 'stocks' table...")
-            result = supabase.table('stocks').select('ticker').execute()
+            logger.info("Fetching all stocks from consolidated 'stocks' table...")
+            result = supabase.table('stocks').select('*').execute()
             if result.data:
-                tickers = [row['ticker'] for row in result.data]
-                logger.info(f"Found {len(tickers)} tickers in 'stocks' table")
-                # Fetch full stock_data for these tickers
-                stocks_result = supabase.table('stock_data').select('*').in_('ticker', tickers).execute()
-                if stocks_result.data:
-                    logger.info(f"✅ Fetched {len(stocks_result.data)} stocks from 'stock_data' table")
-                    return stocks_result.data
-                # If no stock_data entries, return tickers as dicts
-                logger.info("No stock_data entries found, creating empty entries")
-                return [{'ticker': t, 'search_metrics': None, 'income_statement': None, 'projections': None, 'updated_at': None} for t in tickers]
-        except Exception as e:
-            logger.warning(f"⚠️ Could not fetch from 'stocks' table: {e}")
-        
-        # Fallback: get all stocks from stock_data table
-        try:
-            logger.info("Fetching all stocks from 'stock_data' table...")
-            result = supabase.table('stock_data').select('*').execute()
-            if result.data:
-                logger.info(f"✅ Fetched {len(result.data)} stocks from 'stock_data' table")
+                logger.info(f"✅ Fetched {len(result.data)} stocks from 'stocks' table")
                 return result.data
+            logger.warning("⚠️ No stocks found in 'stocks' table")
+            return []
         except Exception as e:
-            logger.warning(f"⚠️ Could not fetch from 'stock_data' table: {e}")
-        
-        # If both fail, return empty list
-        logger.warning("⚠️ Could not fetch stock list from Supabase")
-        return []
+            logger.error(f"❌ Could not fetch from 'stocks' table: {e}")
+            return []
     except Exception as e:
         logger.error(f"❌ Error fetching stock list: {e}", exc_info=True)
         return []
@@ -208,15 +189,15 @@ def should_scrape(stock_data: dict) -> tuple[bool, str]:
     Check if a stock should be scraped based on cache status.
     
     Args:
-        stock_data: Stock data dictionary with ticker, search_metrics, income_statement, updated_at
+        stock_data: Stock data dictionary with ticker, metrics, income_statement, updated_at
         
     Returns:
         Tuple of (should_scrape: bool, reason: str)
     """
     ticker = stock_data.get('ticker')
     
-    # Check if data is missing (never scraped)
-    if stock_data.get('search_metrics') is None or stock_data.get('income_statement') is None:
+    # Check if data is missing (never scraped) - 'metrics' replaces 'search_metrics' in consolidated table
+    if stock_data.get('metrics') is None or stock_data.get('income_statement') is None:
         return True, "no data (never scraped)"
     
     # Check if cache is stale based on earnings date
@@ -365,8 +346,8 @@ async def main():
         logger.info(f"[{i}/{len(stocks)}] Processing {ticker}...")
         
         try:
-            # Check if data is missing (never scraped)
-            if stock.get('search_metrics') is None or stock.get('income_statement') is None:
+            # Check if data is missing (never scraped) - 'metrics' replaces 'search_metrics' in consolidated table
+            if stock.get('metrics') is None or stock.get('income_statement') is None:
                 logger.info(f"  🔄 No data for {ticker}, scraping...")
                 try:
                     # Scrape the stock
