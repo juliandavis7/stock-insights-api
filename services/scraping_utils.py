@@ -48,7 +48,7 @@ async def ensure_data_scraped(
     Args:
         ticker: Stock ticker symbol (normalized to uppercase)
         priority_page: Page to scrape with priority (e.g., 'search', 'income_statement', 'projections')
-        data_key: Key in stock_data dict (e.g., 'search_metrics', 'income_statement', 'projections')
+        data_key: Key in stocks table (e.g., 'metrics', 'income_statement', 'projections')
         remaining_pages: List of pages to scrape in background (e.g., ['income_statement', 'projections'])
     
     Returns:

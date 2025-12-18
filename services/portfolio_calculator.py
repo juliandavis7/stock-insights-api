@@ -50,52 +50,102 @@ def _fetch_price_from_yfinance(ticker: str, yfinance_service: YFinanceService) -
 
 def _get_cached_prices(tickers: List[str]) -> Dict[str, Dict]:
     """
-    Get cached prices from price_cache table.
+    Get cached prices from prices table (joined with stocks for name).
     
     Args:
         tickers: List of ticker symbols
     
     Returns:
-        Dict mapping ticker to cache entry
+        Dict mapping ticker to cache entry with price, pe, name, updated_at
     """
     if not tickers:
         return {}
     
     try:
         client = get_supabase_client()
-        response = client.table('price_cache').select(
-            'ticker, price, pe_ratio, name, updated_at'
+        # Query prices table joined with stocks for name
+        response = client.table('prices').select(
+            'ticker, price, pe, updated_at'
         ).in_('ticker', tickers).execute()
         
-        return {c['ticker']: c for c in response.data}
+        # Also get names from stocks table
+        stocks_response = client.table('stocks').select(
+            'ticker, name'
+        ).in_('ticker', tickers).execute()
+        
+        names_map = {s['ticker']: s.get('name') for s in stocks_response.data}
+        
+        # Map pe to pe_ratio for backwards compatibility in cache processing
+        result = {}
+        for c in response.data:
+            result[c['ticker']] = {
+                'ticker': c['ticker'],
+                'price': c.get('price'),
+                'pe_ratio': c.get('pe'),  # Map pe -> pe_ratio for compatibility
+                'name': names_map.get(c['ticker']),
+                'updated_at': c.get('updated_at')
+            }
+        return result
     except Exception as e:
         logger.warning(f"Error fetching price cache: {e}")
         return {}
 
 
-def _update_price_cache(ticker: str, price: float, pe_ratio: Optional[float], name: Optional[str]) -> None:
+def _ensure_stock_exists(ticker: str, name: Optional[str] = None) -> None:
     """
-    Update or insert a price cache entry.
+    Ensure a stock record exists in the stocks table.
+    Required before inserting into prices table due to FK constraint.
     
     Args:
         ticker: Stock ticker symbol
-        price: Current price
-        pe_ratio: P/E ratio (optional)
         name: Company name (optional)
     """
     try:
         client = get_supabase_client()
-        now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        # Check if stock exists
+        response = client.table('stocks').select('ticker').eq('ticker', ticker).execute()
         
-        cache_record = {
+        if not response.data:
+            # Create minimal stock record
+            logger.info(f"Creating stock record for {ticker} (required for prices FK)")
+            stock_record = {'ticker': ticker}
+            if name:
+                stock_record['name'] = name
+            client.table('stocks').insert(stock_record).execute()
+    except Exception as e:
+        logger.warning(f"Error ensuring stock exists for {ticker}: {e}")
+
+
+def _update_price_cache(ticker: str, price: float, pe_ratio: Optional[float], name: Optional[str]) -> None:
+    """
+    Update price cache in separate prices table.
+    Ensures stock exists first due to FK constraint.
+    
+    Args:
+        ticker: Stock ticker symbol
+        price: Current price
+        pe_ratio: P/E ratio (optional) - stored as 'pe' in DB
+        name: Company name (optional)
+    """
+    try:
+        client = get_supabase_client()
+        
+        # Ensure stock exists first (required for FK constraint)
+        _ensure_stock_exists(ticker, name)
+        
+        # Upsert into prices table (updated_at auto-set by trigger)
+        price_record = {
             'ticker': ticker,
             'price': price,
-            'pe_ratio': pe_ratio,
-            'name': name,
-            'updated_at': now
+            'pe': pe_ratio
         }
         
-        client.table('price_cache').upsert(cache_record).execute()
+        client.table('prices').upsert(price_record).execute()
+        
+        # Also update name in stocks table if provided
+        if name:
+            client.table('stocks').update({'name': name}).eq('ticker', ticker).execute()
+            
     except Exception as e:
         logger.warning(f"Error updating price cache for {ticker}: {e}")
 

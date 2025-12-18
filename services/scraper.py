@@ -156,7 +156,7 @@ def get_cached_data(ticker):
     """
     try:
         supabase = get_supabase_client()
-        result = supabase.table('stock_data').select('*').eq('ticker', ticker).single().execute()
+        result = supabase.table('stocks').select('*').eq('ticker', ticker).single().execute()
         
         if result.data:
             return result.data
@@ -208,7 +208,7 @@ def upsert_stock_data(ticker, search_metrics=None, income_statement=None, projec
     
     Args:
         ticker: Stock ticker symbol
-        search_metrics: Search page metrics (dict or None)
+        search_metrics: Search page metrics (dict or None) - stored as 'metrics' in DB
         income_statement: Income statement data (dict or None)
         projections: Projections data (dict or None)
     """
@@ -221,8 +221,8 @@ def upsert_stock_data(ticker, search_metrics=None, income_statement=None, projec
         }
         
         if search_metrics is not None:
-            # Clean NaN values before storing
-            data['search_metrics'] = clean_nan_values(search_metrics)
+            # Clean NaN values before storing (stored as 'metrics' in consolidated table)
+            data['metrics'] = clean_nan_values(search_metrics)
         if income_statement is not None:
             # Clean NaN values before storing
             data['income_statement'] = clean_nan_values(income_statement)
@@ -230,7 +230,7 @@ def upsert_stock_data(ticker, search_metrics=None, income_statement=None, projec
             # Clean NaN values before storing
             data['projections'] = clean_nan_values(projections)
         
-        result = supabase.table('stock_data').upsert(data).execute()
+        result = supabase.table('stocks').upsert(data).execute()
         print(f"✅ Successfully cached data for {ticker}")
         return result
     except Exception as e:
@@ -1754,10 +1754,10 @@ async def scrape_stock_metrics(ticker, pages=None, use_cache=True, page=None, br
                         print(f"✅ Using cached data ({days_old} days old)")
                 
                 if cache_valid:
-                    # Build result from cached data
+                    # Build result from cached data ('metrics' in consolidated table)
                     result = {}
-                    if 'search' in pages and cached_data.get('search_metrics'):
-                        result['search'] = cached_data['search_metrics']
+                    if 'search' in pages and cached_data.get('metrics'):
+                        result['search'] = cached_data['metrics']
                     if 'income_statement' in pages and cached_data.get('income_statement'):
                         result['income_statement'] = cached_data['income_statement']
                     if 'projections' in pages and cached_data.get('projections'):

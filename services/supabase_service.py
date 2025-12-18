@@ -271,16 +271,18 @@ class SupabaseService:
     
     def get_stock_data(self, ticker: str) -> Optional[Dict]:
         """
-        Get stock data from stock_data table by ticker.
+        Get stock data from consolidated stocks table by ticker.
         
         Args:
             ticker: Stock ticker symbol (e.g., 'META')
             
         Returns:
-            Dict with stock_data row or None if not found
+            Dict with stocks row or None if not found.
+            Note: 'metrics' field in DB is returned, callers expecting 'search_metrics' 
+            should access 'metrics' instead.
         """
         try:
-            response = self.client.table('stock_data').select('*').eq('ticker', ticker.upper()).single().execute()
+            response = self.client.table('stocks').select('*').eq('ticker', ticker.upper()).single().execute()
             if response.data:
                 return response.data
             return None
